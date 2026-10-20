@@ -1,13 +1,13 @@
 {
-  "name": "windoalls",
-  "displayName": "windoalls",
-  "description": "Track and restore the AI coding sessions running in your VS Code terminals, per project.",
+  "name": "visual-impression",
+  "displayName": "Visual Impression",
+  "description": "Restore the AI coding conversation that was running in each terminal, per project. Works locally and over Remote SSH.",
   "version": "0.1.0",
   "publisher": "geniuspudding",
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/GeniusPudding/windoalls"
+    "url": "https://github.com/GeniusPudding/visual-impression"
   },
   "engines": {
     "vscode": "^1.93.0"
@@ -19,8 +19,12 @@
     "terminal",
     "session",
     "restore",
+    "resume",
     "claude",
-    "codex"
+    "codex",
+    "agent",
+    "remote",
+    "ssh"
   ],
   "activationEvents": [
     "onStartupFinished"
@@ -81,5 +85,8 @@
     "@types/vscode": "^1.93.0",
     "@vscode/vsce": "^4.0.0",
     "typescript": "^5.4.0"
+  },
+  "bugs": {
+    "url": "https://github.com/GeniusPudding/visual-impression/issues"
   }
 }
