@@ -9,6 +9,7 @@ import * as vscode from 'vscode';
 import {
   App,
   TerminalRecord,
+  WorkspaceIndex,
   indexPath,
   pruneHistory,
   deleteIndex,
@@ -28,6 +29,7 @@ let timer: NodeJS.Timeout | undefined;
 let scanning = false;
 /** Commands seen before the terminal had a record; the next scan attaches them. */
 const pendingCommand = new Map<string, { cmd: string; at: string }>();
+let status: vscode.StatusBarItem | undefined;
 
 export function activate(context: vscode.ExtensionContext): void {
   const folder = workspaceFolder();
@@ -45,6 +47,12 @@ export function activate(context: vscode.ExtensionContext): void {
     vscode.window.onDidStartTerminalShellExecution((e) => void onShellExecution(folder, e)),
     { dispose: () => timer && clearTimeout(timer) },
   );
+
+  // A notification is gone in a few seconds, and what it announces is worth
+  // finding an hour later. This says the same thing and stays put.
+  status = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 100);
+  status.command = 'visualImpression.restoreTerminals';
+  context.subscriptions.push(status);
 
   // Mark anything still open from the previous run as closed: the window is
   // starting, so by definition none of it survived.
@@ -191,6 +199,7 @@ async function scan(folder: string): Promise<void> {
 
     pruneHistory(ix, cfg('historyDays', 14));
     writeIndex(ix);
+    showCount(ix, seen);
   } catch {
     /* recording is best effort; never surface an error for it */
   } finally {
@@ -234,6 +243,24 @@ async function onShellExecution(
   writeIndex(ix);
 }
 
+/**
+ * The count of conversations this project could bring back, in the status
+ * bar. Hidden when there are none, so it is never decoration.
+ */
+function showCount(ix: WorkspaceIndex, openKeys: ReadonlySet<string>): void {
+  if (!status) {
+    return;
+  }
+  const n = restorable(ix, openKeys).filter((t) => t.app !== 'shell').length;
+  if (!n) {
+    status.hide();
+    return;
+  }
+  status.text = `$(history) ${n}`;
+  status.tooltip = `Visual Impression: ${n} conversation${n === 1 ? '' : 's'} can be brought back. Click to pick.`;
+  status.show();
+}
+
 function onClosed(folder: string, term: vscode.Terminal): void {
   const key = liveKeys.get(term);
   if (!key) {
@@ -244,6 +271,7 @@ function onClosed(folder: string, term: vscode.Terminal): void {
   if (rec && !rec.closedAt) {
     rec.closedAt = new Date().toISOString();
     writeIndex(ix);
+    scheduleScan(folder, 1000); // the count in the status bar has just changed
   }
 }
 

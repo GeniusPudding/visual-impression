@@ -71,6 +71,11 @@ When you open a project that has recorded terminals, a notification offers to
 restore them. Everything is pre-checked, so `Restore…` then Enter brings the
 project back. `Don't ask again` turns the notification off for good.
 
+A notification is gone in seconds, though, and what it announces is still
+worth finding an hour later -- so the count also sits in the status bar,
+`$(history) 3`, and clicking it opens the same picker. It hides itself when
+there is nothing to bring back. Missing the notification costs nothing.
+
 ## Settings
 
 | Setting | Default | |
