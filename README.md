@@ -28,11 +28,23 @@ what is installed and runs the tests, including the ones that read this
 machine's real process table -- which is the part worth verifying on a
 platform you have not tried before.
 
-**Over Remote SSH**, clone and run it on the remote host, from a terminal
-inside the connected VS Code window. The extension has to live where the
-terminals it watches live, and that integrated terminal is the only place
-where `code` means the server on that host rather than the editor on your
-laptop.
+### Which machine, over Remote SSH
+
+A Remote SSH session is two halves: the window on your laptop, and a server
+on the host. **Install on the host.** Terminals in that window are processes
+there, the agents run there, and `~/.codex` is the host's -- your laptop
+sees none of it.
+
+So: open the connected window, open a terminal in it (that terminal is
+already on the host), and clone and install from there. The `code` on its
+PATH is the host's, which is what makes this work.
+
+Install on the laptop as well only if you also open local folders there and
+run agents locally. VS Code keeps the two installations separate on purpose,
+and the Extensions panel lists them under `LOCAL` and `SSH: host` to match.
+
+`./scripts/setup.sh --check` names the machine it is running on and says
+which half it is, if you are ever unsure.
 
 Requires VS Code 1.93 or newer and Node 18 or newer. `--uninstall` removes
 it; recorded history in `~/.wt-tabs/vscode/` is left alone.

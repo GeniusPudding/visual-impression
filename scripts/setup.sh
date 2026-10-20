@@ -32,6 +32,25 @@ find_code() {
 
 CODE=$(find_code) || { bad "no VS Code CLI found. Over SSH, run this from a terminal inside the connected window."; exit 1; }
 
+# Which half of a Remote SSH session is this? The question people actually
+# have is "which machine am I installing on", and the CLI's own path answers
+# it: a server installed by Remote SSH keeps its one under ~/.vscode-server.
+where_am_i() {
+  ok "machine: $(hostname) ($(uname -s) $(uname -m))"
+  case "$CODE" in
+    *.vscode-server*|*remote-cli*)
+      ok "this is the REMOTE half of a Remote SSH session"
+      say "        Installing here is right: the terminals, the agents and"
+      say "        ~/.codex all live on this machine, not on your laptop."
+      ;;
+    *)
+      ok "this is a local VS Code"
+      say "        Installing here covers folders you open locally. Terminals"
+      say "        in a Remote SSH window are not these -- install over there too."
+      ;;
+  esac
+}
+
 case "${1:-}" in
   --uninstall)
     "$CODE" --uninstall-extension "$EXT_ID" || true
@@ -41,6 +60,7 @@ case "${1:-}" in
   --check)
     say ''
     say "Visual Impression  $ROOT"
+    where_am_i
     command -v node >/dev/null 2>&1 && ok "node $(node --version)" || bad 'node not found (18 or newer)'
     command -v npm  >/dev/null 2>&1 && ok "npm  $(npm --version)"  || bad 'npm not found'
     ok "VS Code CLI: $CODE ($("$CODE" --version 2>/dev/null | head -1))"
