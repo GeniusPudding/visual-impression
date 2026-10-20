@@ -221,12 +221,12 @@ export function pickCodexRollout(
   cwd: string,
   claimed: ReadonlySet<string> = new Set(),
 ): string | null {
-  const want = normalise(cwd);
+  const want = normalisePath(cwd);
   if (!want) {
     return null;
   }
   const cand = rows.filter(
-    (r) => r.source === 'vscode' && normalise(r.cwd) === want && !claimed.has(r.sessionId),
+    (r) => r.source === 'vscode' && normalisePath(r.cwd) === want && !claimed.has(r.sessionId),
   );
   if (!cand.length) {
     return null;
@@ -234,8 +234,14 @@ export function pickCodexRollout(
   return [...cand].sort((a, b) => b.modified - a.modified)[0].sessionId;
 }
 
-function normalise(p: string): string {
-  return (p || '').replace(/[\\/]+$/, '').toLowerCase();
+/**
+ * Windows compares paths case-insensitively; Linux does not. Folding case on
+ * Linux would let a rollout from ~/src/Api be claimed by a terminal sitting
+ * in ~/src/api, which is a different directory there.
+ */
+export function normalisePath(p: string, foldCase = process.platform === 'win32'): string {
+  const trimmed = (p || '').replace(/[\\/]+$/, '');
+  return foldCase ? trimmed.toLowerCase() : trimmed;
 }
 
 function walk(dir: string, depth: number): string[] {

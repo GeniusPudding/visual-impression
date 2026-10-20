@@ -16,14 +16,74 @@ export interface Proc {
 
 let cache: { at: number; procs: Proc[] } | null = null;
 
+const WINDOWS = process.platform === 'win32';
+
 /**
- * One CIM query for the whole table, then the tree is built in memory. Asking
- * per-pid would mean a PowerShell start-up per terminal, which is ~300 ms each.
+ * One query for the whole table, then the tree is built in memory. Asking
+ * per-pid would mean a process start-up per terminal.
  */
 export async function listProcesses(maxAgeMs = 4000): Promise<Proc[]> {
   if (cache && Date.now() - cache.at < maxAgeMs) {
     return cache.procs;
   }
+  const procs = WINDOWS ? await listWindows() : await listPosix();
+  cache = { at: Date.now(), procs };
+  return procs;
+}
+
+/**
+ * `ps` on macOS and Linux. Cheap -- a few milliseconds -- where the Windows
+ * side costs over a second, and that second is the PowerShell interpreter
+ * starting, not the query.
+ */
+async function listPosix(): Promise<Proc[]> {
+  // -ww because BSD ps truncates the command line to the terminal width, and
+  // the end of that line is exactly what is being read: `codex resume <uuid>`.
+  let out = await run('ps', ['-ax', '-ww', '-o', 'pid=,ppid=,args=']);
+  if (!out.trim()) {
+    // Not every ps accepts a repeated -w. A truncated command line still
+    // identifies the agent; only the uuid at the end may be lost.
+    out = await run('ps', ['-ax', '-o', 'pid=,ppid=,args=']);
+  }
+  return parsePs(out);
+}
+
+/**
+ * Three columns: pid, ppid, and the command line, which holds the spaces.
+ *
+ * `comm` is deliberately not asked for. On macOS it is the executable's full
+ * path, and those contain spaces -- /Applications/Visual Studio
+ * Code.app/Contents/MacOS/Electron -- so a four-column split cannot be
+ * unambiguously parsed. The name is taken from argv[0] instead.
+ */
+export function parsePs(stdout: string): Proc[] {
+  const procs: Proc[] = [];
+  for (const line of stdout.split('\n')) {
+    const m = /^\s*(\d+)\s+(\d+)\s+(.*)$/.exec(line);
+    if (!m) {
+      continue;
+    }
+    const commandLine = m[3].trim();
+    if (!commandLine) {
+      continue; // a kernel thread has no argv
+    }
+    procs.push({
+      pid: Number(m[1]),
+      ppid: Number(m[2]),
+      name: argv0Name(commandLine),
+      commandLine,
+    });
+  }
+  return procs;
+}
+
+function argv0Name(commandLine: string): string {
+  const argv0 = commandLine.split(' ')[0];
+  const cut = Math.max(argv0.lastIndexOf('/'), argv0.lastIndexOf('\\'));
+  return cut >= 0 ? argv0.slice(cut + 1) : argv0;
+}
+
+async function listWindows(): Promise<Proc[]> {
   const ps =
     'Get-CimInstance Win32_Process | ' +
     'Select-Object ProcessId,ParentProcessId,Name,CommandLine | ' +
@@ -36,7 +96,7 @@ export async function listProcesses(maxAgeMs = 4000): Promise<Proc[]> {
   } catch {
     rows = [];
   }
-  const procs: Proc[] = rows
+  return rows
     .filter((r) => r && typeof r.ProcessId === 'number')
     .map((r) => ({
       pid: r.ProcessId as number,
@@ -44,8 +104,6 @@ export async function listProcesses(maxAgeMs = 4000): Promise<Proc[]> {
       name: typeof r.Name === 'string' ? (r.Name as string) : '',
       commandLine: typeof r.CommandLine === 'string' ? (r.CommandLine as string) : '',
     }));
-  cache = { at: Date.now(), procs };
-  return procs;
 }
 
 export function invalidateProcessCache(): void {

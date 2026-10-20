@@ -13,8 +13,8 @@ const os = require('os');
 const path = require('path');
 
 const OUT = path.join(__dirname, '..', 'out');
-const { descendants } = require(path.join(OUT, 'procs.js'));
-const { pickCodexRollout, listRollouts, invalidateRolloutCache } = require(path.join(OUT, 'resolve.js'));
+const { descendants, parsePs } = require(path.join(OUT, 'procs.js'));
+const { pickCodexRollout, listRollouts, invalidateRolloutCache, normalisePath } = require(path.join(OUT, 'resolve.js'));
 const { findCodexLog, getPreview, oneLine } = require(path.join(OUT, 'preview.js'));
 const store = require(path.join(OUT, 'store.js'));
 
@@ -297,6 +297,44 @@ test('planRestore: uses every revived terminal before opening a new one', () => 
   assert.deepStrictEqual(store.planRestore(2, 5), [true, true]);
   assert.deepStrictEqual(store.planRestore(2, 0), [false, false]);
   assert.deepStrictEqual(store.planRestore(0, 3), []);
+});
+
+// ------------------------------------------------------------------ posix --
+
+test('parsePs: reads pid, ppid and the whole command line', () => {
+  const out = [
+    '  1     0 /sbin/launchd',
+    '  842   1 -zsh',
+    ' 1337 842 node /Users/me/.nvm/versions/node/v20.11.0/lib/node_modules/@anthropic-ai/claude-code/cli.js',
+    ' 1400 842 codex resume 01a11bd7-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+    '',
+  ].join('\n');
+  const procs = parsePs(out);
+  assert.deepStrictEqual(procs.map((p) => p.pid), [1, 842, 1337, 1400]);
+  assert.strictEqual(procs[1].ppid, 1);
+  assert.strictEqual(procs[2].name, 'node');
+  assert.strictEqual(procs[3].name, 'codex');
+  // The uuid sits at the very end of the line, so nothing may be truncated.
+  assert.ok(procs[3].commandLine.endsWith('01a11bd7-aaaa-4aaa-8aaa-aaaaaaaaaaaa'));
+});
+
+// macOS reports executable paths that contain spaces, which is exactly why
+// `comm` is not one of the requested columns.
+test('REGRESSION -- parsePs: survives a macOS path with spaces in it', () => {
+  const line = ' 2201 1 /Applications/Visual Studio Code.app/Contents/MacOS/Electron --type=utility';
+  const [p] = parsePs(line);
+  assert.strictEqual(p.pid, 2201);
+  assert.strictEqual(p.commandLine, '/Applications/Visual Studio Code.app/Contents/MacOS/Electron --type=utility');
+});
+
+test('parsePs: skips headers, blank lines and argv-less kernel threads', () => {
+  assert.deepStrictEqual(parsePs('  PID  PPID ARGS\n\n   3     2 \n'), []);
+});
+
+test('normalisePath: folds case only where the filesystem does', () => {
+  assert.strictEqual(normalisePath('C:\\Work\\Repo\\', true), 'c:\\work\\repo');
+  assert.strictEqual(normalisePath('/home/me/Api/', false), '/home/me/Api');
+  assert.notStrictEqual(normalisePath('/home/me/Api', false), normalisePath('/home/me/api', false));
 });
 
 // ----------------------------------------------------------------- format --

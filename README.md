@@ -69,7 +69,17 @@ read `session_meta`, never the file name.
 
 ## Known limits
 
-- **Windows only**, for now: the process walk shells out to PowerShell.
+- **macOS and Linux are written but not yet verified.** The process walk is
+  the only platform-specific part: `ps -ax -ww -o pid=,ppid=,args=` there,
+  `Get-CimInstance Win32_Process` on Windows -- measured at a few milliseconds
+  against 1.2s, and that 1.2s is PowerShell starting, not the query. Two
+  things still need confirming on a real machine: that Claude Code publishes
+  `~/.claude/sessions/<pid>.json` there as it does on Windows, and that `ps`
+  accepts the repeated `-w`.
+- **Over SSH the extension runs on the remote host**, which is where it
+  belongs: the terminals, the agents and `~/.codex` are all there. Its index
+  is written to the remote home, so that machine answers for its own
+  terminals.
 - **A terminal that never ran an agent** is recorded as a plain shell and is
   not offered by default; VS Code's own terminal persistence covers it.
 - **An agent started and exited** keeps its record: the conversation it ran is
