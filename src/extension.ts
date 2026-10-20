@@ -6,7 +6,16 @@
 // while the window is open, and offer it back when the project is reopened.
 
 import * as vscode from 'vscode';
-import { App, TerminalRecord, indexPath, pruneHistory, deleteIndex, readIndex, writeIndex } from './store';
+import {
+  App,
+  TerminalRecord,
+  indexPath,
+  pruneHistory,
+  deleteIndex,
+  readIndex,
+  restorable,
+  writeIndex,
+} from './store';
 import { invalidateProcessCache } from './procs';
 import { invalidateRolloutCache, resolveTerminal } from './resolve';
 import { getPreview, oneLine } from './preview';
@@ -36,9 +45,18 @@ export function activate(context: vscode.ExtensionContext): void {
   // starting, so by definition none of it survived.
   closeAllStale(folder);
 
-  void offerRestoreOnStartup(folder);
   startPolling(folder, context);
-  scheduleScan(folder, 3000);
+
+  // Scan before offering anything. A window reload reconnects its terminals
+  // under their original pids, so the line above has just marked live
+  // terminals closed; offering those back would start a second agent on a
+  // conversation that is still running. The scan re-opens their records and
+  // repopulates liveKeys, which is what tells the two apart.
+  void (async () => {
+    await new Promise((r) => setTimeout(r, 2000)); // let reconnected ptys report a pid
+    await scan(folder);
+    await offerRestoreOnStartup(folder);
+  })();
 }
 
 export function deactivate(): void {
@@ -225,19 +243,19 @@ interface Choice extends vscode.QuickPickItem {
   rec: TerminalRecord;
 }
 
-async function restoreTerminals(folder: string): Promise<void> {
-  const ix = readIndex(folder);
-  const openKeys = new Set<string>();
+function openKeysNow(): Set<string> {
+  const keys = new Set<string>();
   for (const t of vscode.window.terminals) {
     const k = liveKeys.get(t);
     if (k) {
-      openKeys.add(k);
+      keys.add(k);
     }
   }
+  return keys;
+}
 
-  const candidates = ix.terminals
-    .filter((t) => t.closedAt && !openKeys.has(t.key))
-    .sort((a, b) => Date.parse(b.closedAt!) - Date.parse(a.closedAt!));
+async function restoreTerminals(folder: string): Promise<void> {
+  const candidates = restorable(readIndex(folder), openKeysNow());
 
   if (!candidates.length) {
     void vscode.window.showInformationMessage('windoalls: nothing recorded to bring back for this project yet.');
@@ -314,8 +332,7 @@ async function offerRestoreOnStartup(folder: string): Promise<void> {
   if (!cfg('promptOnStartup', true)) {
     return;
   }
-  const ix = readIndex(folder);
-  const n = ix.terminals.filter((t) => t.closedAt && t.app !== 'shell').length;
+  const n = restorable(readIndex(folder), openKeysNow()).filter((t) => t.app !== 'shell').length;
   if (!n) {
     return;
   }

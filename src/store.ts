@@ -93,6 +93,24 @@ export function pruneHistory(ix: WorkspaceIndex, days: number): void {
   });
 }
 
+/**
+ * What `Restore terminals` may offer: closed records, minus anything whose
+ * terminal is on screen right now, newest first.
+ *
+ * The second test is not redundant. A window reload reconnects its terminals
+ * under their original pids, so a record is marked closed on activation and is
+ * live again a moment later; offering that back would start a second agent on
+ * a conversation already running in the terminal next door.
+ */
+export function restorable(
+  ix: WorkspaceIndex,
+  openKeys: ReadonlySet<string> = new Set(),
+): TerminalRecord[] {
+  return ix.terminals
+    .filter((t) => t.closedAt && !openKeys.has(t.key))
+    .sort((a, b) => Date.parse(b.closedAt as string) - Date.parse(a.closedAt as string));
+}
+
 export function deleteIndex(folder: string): void {
   try {
     fs.unlinkSync(indexPath(folder));

@@ -270,6 +270,28 @@ test('store: prunes closed terminals past the window but never open ones', () =>
   assert.deepStrictEqual(ix.terminals.map((t) => t.key), ['b', 'c']);
 });
 
+test('restorable: offers closed records, newest first', () => {
+  const ix = { version: 1, folder: 'C:\work\repo', updatedAt: '', terminals: [
+    { key: 'a', app: 'claude', closedAt: '2026-10-20T08:00:00.000Z' },
+    { key: 'b', app: 'codex',  closedAt: '2026-10-20T09:00:00.000Z' },
+    { key: 'c', app: 'claude', closedAt: null },
+  ] };
+  assert.deepStrictEqual(store.restorable(ix).map((t) => t.key), ['b', 'a']);
+});
+
+// A window reload reconnects terminals under their original pids: activation
+// marks every record closed, then the scan finds them live again. Offering one
+// back would start a second agent on a conversation already running.
+test('REGRESSION -- restorable: never offers a terminal that is on screen', () => {
+  const ix = { version: 1, folder: 'C:\work\repo', updatedAt: '', terminals: [
+    { key: '5320:pwsh', app: 'claude', closedAt: '2026-10-20T08:00:00.000Z' },
+    { key: '4100:pwsh', app: 'claude', closedAt: '2026-10-20T08:00:00.000Z' },
+  ] };
+  const open = new Set(['5320:pwsh']);
+  assert.deepStrictEqual(store.restorable(ix, open).map((t) => t.key), ['4100:pwsh']);
+  assert.deepStrictEqual(store.restorable(ix, new Set(['5320:pwsh', '4100:pwsh'])), []);
+});
+
 // ----------------------------------------------------------------- format --
 
 test('oneLine: flattens and truncates', () => {
