@@ -10,7 +10,8 @@
     "url": "https://github.com/GeniusPudding/visual-impression"
   },
   "engines": {
-    "vscode": "^1.93.0"
+    "vscode": "^1.93.0",
+    "node": ">=20.0.0"
   },
   "categories": [
     "Other"
@@ -78,7 +79,7 @@
     "watch": "tsc -watch -p ./",
     "vscode:prepublish": "npm run compile",
     "package": "vsce package --no-dependencies",
-    "test": "npm run compile && node --test test/"
+    "test": "npm run compile && node --test"
   },
   "devDependencies": {
     "@types/node": "^20.11.0",
