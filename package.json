@@ -1,0 +1,80 @@
+{
+  "name": "windoalls",
+  "displayName": "windoalls",
+  "description": "Track and restore the AI coding sessions running in your VS Code terminals, per project.",
+  "version": "0.1.0",
+  "publisher": "geniuspudding",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/GeniusPudding/windoalls"
+  },
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "keywords": [
+    "terminal",
+    "session",
+    "restore",
+    "claude",
+    "codex"
+  ],
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "windoalls.restoreTerminals",
+        "title": "windoalls: Restore terminals",
+        "shortTitle": "Restore terminals"
+      },
+      {
+        "command": "windoalls.showStatus",
+        "title": "windoalls: Show tracked terminals"
+      },
+      {
+        "command": "windoalls.forgetWorkspace",
+        "title": "windoalls: Forget this workspace's history"
+      }
+    ],
+    "configuration": {
+      "title": "windoalls",
+      "properties": {
+        "windoalls.promptOnStartup": {
+          "type": "boolean",
+          "default": true,
+          "description": "When a project is opened and agent terminals were recorded here before, offer to bring them back."
+        },
+        "windoalls.scanIntervalSeconds": {
+          "type": "number",
+          "default": 45,
+          "minimum": 10,
+          "description": "How often to re-check which agent each terminal is running. An agent started inside an existing terminal is picked up on the next scan."
+        },
+        "windoalls.historyDays": {
+          "type": "number",
+          "default": 14,
+          "description": "Forget terminals that closed more than this many days ago."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "vscode:prepublish": "npm run compile",
+    "package": "vsce package --no-dependencies",
+    "test": "npm run compile && node --test test/"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.0",
+    "@types/vscode": "^1.85.0",
+    "@vscode/vsce": "^4.0.0",
+    "typescript": "^5.4.0"
+  }
+}
