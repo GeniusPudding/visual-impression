@@ -8,6 +8,35 @@ VS Code already restores the *shell* in a terminal. What it cannot restore is
 the conversation that was running inside it, because only the agent knows that
 and only the window knows which terminal was which.
 
+## Quick start
+
+Not on the Marketplace yet, so install it from source -- one clone and one
+command, on any of the three platforms:
+
+```bash
+git clone https://github.com/GeniusPudding/visual-impression
+cd visual-impression && ./scripts/setup.sh          # macOS, Linux
+```
+
+```powershell
+git clone https://github.com/GeniusPudding/visual-impression
+cd visual-impression; .\scripts\setup.ps1          # Windows
+```
+
+Then reload the window. `./scripts/setup.sh --check` (or `-Check`) reports
+what is installed and runs the tests, including the ones that read this
+machine's real process table -- which is the part worth verifying on a
+platform you have not tried before.
+
+**Over Remote SSH**, clone and run it on the remote host, from a terminal
+inside the connected VS Code window. The extension has to live where the
+terminals it watches live, and that integrated terminal is the only place
+where `code` means the server on that host rather than the editor on your
+laptop.
+
+Requires VS Code 1.93 or newer and Node 18 or newer. `--uninstall` removes
+it; recorded history in `~/.wt-tabs/vscode/` is left alone.
+
 ## Why an extension, and not an outside tool
 
 A tool outside the editor can watch the process tree and find the agents
@@ -121,7 +150,7 @@ records nothing, which is the honest outcome.
 ```
 npm install
 npm run compile
-npm test            # 20 tests, node:test, no VS Code needed
+npm test            # 32 tests; the last three read the real process table
 npm run package     # builds the .vsix
 ```
 
