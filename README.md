@@ -26,7 +26,8 @@ pid directly, and it already knows the workspace.
 | `windoalls: Forget this workspace's history` | delete this project's index |
 
 When you open a project that has recorded terminals, a notification offers to
-restore them. `Don't ask again` turns that off for good.
+restore them. Everything is pre-checked, so `Restore…` then Enter brings the
+project back. `Don't ask again` turns the notification off for good.
 
 ## Settings
 

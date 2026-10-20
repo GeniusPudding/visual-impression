@@ -47,16 +47,18 @@ export function activate(context: vscode.ExtensionContext): void {
 
   startPolling(folder, context);
 
-  // Scan before offering anything. A window reload reconnects its terminals
-  // under their original pids, so the line above has just marked live
-  // terminals closed; offering those back would start a second agent on a
-  // conversation that is still running. The scan re-opens their records and
-  // repopulates liveKeys, which is what tells the two apart.
+  // The prompt must not wait for a scan. Resolving which agent is in which
+  // terminal costs a PowerShell start-up -- over a second -- and the prompt
+  // does not need the answer: it only needs to know which terminals are on
+  // screen, which VS Code can say in milliseconds. A window reload reconnects
+  // its terminals under their original pids, and closeAllStale has just marked
+  // those records closed, so without that check a live conversation would be
+  // offered back into a second terminal.
   void (async () => {
-    await new Promise((r) => setTimeout(r, 2000)); // let reconnected ptys report a pid
-    await scan(folder);
+    await new Promise((r) => setTimeout(r, 800)); // let reconnected ptys report a pid
     await offerRestoreOnStartup(folder);
   })();
+  scheduleScan(folder, 1500);
 }
 
 export function deactivate(): void {
@@ -243,19 +245,29 @@ interface Choice extends vscode.QuickPickItem {
   rec: TerminalRecord;
 }
 
-function openKeysNow(): Set<string> {
+/**
+ * The keys of the terminals on screen right now. A terminal the current scan
+ * has not reached yet is keyed directly from its pid, so this is usable before
+ * the first scan and costs nothing: `processId` is already known to VS Code.
+ */
+async function openKeysNow(): Promise<Set<string>> {
   const keys = new Set<string>();
   for (const t of vscode.window.terminals) {
-    const k = liveKeys.get(t);
-    if (k) {
-      keys.add(k);
+    const known = liveKeys.get(t);
+    if (known) {
+      keys.add(known);
+      continue;
+    }
+    const pid = await pidOf(t);
+    if (pid !== null) {
+      keys.add(keyFor(t, pid));
     }
   }
   return keys;
 }
 
 async function restoreTerminals(folder: string): Promise<void> {
-  const candidates = restorable(readIndex(folder), openKeysNow());
+  const candidates = restorable(readIndex(folder), await openKeysNow());
 
   if (!candidates.length) {
     void vscode.window.showInformationMessage('windoalls: nothing recorded to bring back for this project yet.');
@@ -271,7 +283,10 @@ async function restoreTerminals(folder: string): Promise<void> {
       label: `$(${iconFor(rec.app)}) ${title ?? rec.name}`,
       description: `${rec.app}  ·  ${ago(rec.closedAt!)}`,
       detail,
-      picked: rec.app !== 'shell',
+      // Everything is pre-checked: Enter alone brings the project back, which
+      // is the whole point. A plain shell among them is harmless -- it opens
+      // in the right folder and runs nothing.
+      picked: true,
     };
   });
 
@@ -332,7 +347,7 @@ async function offerRestoreOnStartup(folder: string): Promise<void> {
   if (!cfg('promptOnStartup', true)) {
     return;
   }
-  const n = restorable(readIndex(folder), openKeysNow()).filter((t) => t.app !== 'shell').length;
+  const n = restorable(readIndex(folder), await openKeysNow()).filter((t) => t.app !== 'shell').length;
   if (!n) {
     return;
   }
