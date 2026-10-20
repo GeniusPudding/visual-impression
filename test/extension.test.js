@@ -88,9 +88,22 @@ test('pickCodexRollout: matches a vscode session in this workspace', () => {
   assert.strictEqual(pickCodexRollout(rows, 'C:\\work\\repo'), CONV);
 });
 
-test('pickCodexRollout: is case- and trailing-slash-insensitive', () => {
-  const rows = [rollout(CONV, 'C:\\Work\\Repo\\', 'vscode', 100)];
-  assert.strictEqual(pickCodexRollout(rows, 'c:\\work\\repo'), CONV);
+test('pickCodexRollout: ignores a trailing slash', () => {
+  const rows = [rollout(CONV, 'C:\\work\\repo\\', 'vscode', 100)];
+  assert.strictEqual(pickCodexRollout(rows, 'C:\\work\\repo'), CONV);
+});
+
+// Case is not a cosmetic difference everywhere. On Windows these are one
+// directory and the session belongs to this terminal; on Linux they are two,
+// and claiming the rollout would drop the wrong conversation into the tab.
+test('pickCodexRollout: folds case only where the filesystem does', () => {
+  const rows = [rollout(CONV, 'C:\\Work\\Repo', 'vscode', 100)];
+  const got = pickCodexRollout(rows, 'c:\\work\\repo');
+  if (process.platform === 'win32') {
+    assert.strictEqual(got, CONV);
+  } else {
+    assert.strictEqual(got, null, 'two paths differing only by case are two directories here');
+  }
 });
 
 test('pickCodexRollout: ignores another workspace', () => {
