@@ -299,6 +299,25 @@ test('planRestore: uses every revived terminal before opening a new one', () => 
   assert.deepStrictEqual(store.planRestore(0, 3), []);
 });
 
+test('isWorthRecording: keeps real work, drops navigation and noise', () => {
+  assert.ok(store.isWorthRecording('npm run dev'));
+  assert.ok(store.isWorthRecording('python train.py --epochs 40'));
+  assert.ok(store.isWorthRecording('  pytest -k auth  '));
+  for (const noise of ['', '   ', 'cd ../other', 'ls -la', 'pwd', 'clear', 'exit', 'LOGOUT']) {
+    assert.strictEqual(store.isWorthRecording(noise), false, noise);
+  }
+  assert.strictEqual(store.isWorthRecording('x'.repeat(2001)), false);
+});
+
+// The restore types these in itself. Recording them would make a restored
+// terminal remember nothing but the restore.
+test('isWorthRecording: ignores the resume commands this extension sends', () => {
+  assert.strictEqual(store.isWorthRecording('claude --resume abc-123'), false);
+  assert.strictEqual(store.isWorthRecording('claude -c'), false);
+  assert.strictEqual(store.isWorthRecording('codex resume abc-123'), false);
+  assert.ok(store.isWorthRecording('codex exec "fix the build"'));
+});
+
 // ------------------------------------------------------------------ posix --
 
 test('parsePs: reads pid, ppid and the whole command line', () => {

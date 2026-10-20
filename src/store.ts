@@ -25,6 +25,9 @@ export interface TerminalRecord {
   openedAt: string;
   lastSeen: string;
   closedAt: string | null;
+  /** The last command run here, for a terminal that is not running an agent. */
+  lastCommand: string | null;
+  lastCommandAt: string | null;
 }
 
 export interface WorkspaceIndex {
@@ -119,6 +122,25 @@ export function restorable(
  * reproduce it, so the only way to land inside it is to use what is already
  * there.
  */
+/**
+ * Whether a command is worth putting back on the prompt when the terminal
+ * returns. Navigation and screen-clearing are not: the restored terminal
+ * already opens in the right directory, and offering `clear` back would only
+ * displace something useful. The resume commands this extension itself sends
+ * are skipped too, so a restore does not record itself.
+ */
+export function isWorthRecording(command: string): boolean {
+  const trimmed = (command || '').trim();
+  if (!trimmed || trimmed.length > 2000) {
+    return false;
+  }
+  if (/^(claude\s+(--resume|-c)|codex\s+resume)\b/i.test(trimmed)) {
+    return false;
+  }
+  const verb = trimmed.split(/\s+/)[0].toLowerCase();
+  return !['cd', 'ls', 'll', 'dir', 'pwd', 'clear', 'cls', 'exit', 'logout'].includes(verb);
+}
+
 export function planRestore(count: number, spares: number): boolean[] {
   const budget = Math.max(0, Math.min(count, spares));
   return Array.from({ length: Math.max(0, count) }, (_, i) => i < budget);

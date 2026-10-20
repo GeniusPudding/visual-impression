@@ -67,6 +67,25 @@ session id, and every later `codex resume` opens a new file carrying its own
 uuid in the name while `session_meta` still points at the original. So lookups
 read `session_meta`, never the file name.
 
+## Plain terminals, and what they are worth over SSH
+
+A terminal that never ran an agent still had something running in it. VS Code
+revives a shell with its directory, so locally there is little left to add --
+but over SSH the terminals live on the remote host, and when that host's VS
+Code server restarts, nothing survives. The directory goes too.
+
+So the last command is recorded, through shell integration
+(`onDidStartTerminalShellExecution`), and put back on the prompt when the
+terminal returns -- **typed, not run**. Reopening a window must never re-run a
+deploy, a migration or an `rm`. Navigation and screen-clearing are not worth
+recording and are filtered out, as are the resume commands this extension
+sends itself.
+
+Low-confidence command lines are ignored: VS Code marks those when it read the
+text off the screen without markers from the shell integration script, which
+means it may not be a command at all. A shell with no shell integration
+records nothing, which is the honest outcome.
+
 ## Known limits
 
 - **macOS and Linux are written but not yet verified.** The process walk is

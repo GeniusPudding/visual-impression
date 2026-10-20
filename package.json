@@ -10,7 +10,7 @@
     "url": "https://github.com/GeniusPudding/windoalls"
   },
   "engines": {
-    "vscode": "^1.85.0"
+    "vscode": "^1.93.0"
   },
   "categories": [
     "Other"
@@ -78,7 +78,7 @@
   },
   "devDependencies": {
     "@types/node": "^20.11.0",
-    "@types/vscode": "^1.85.0",
+    "@types/vscode": "^1.93.0",
     "@vscode/vsce": "^4.0.0",
     "typescript": "^5.4.0"
   }

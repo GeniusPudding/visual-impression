@@ -12,6 +12,7 @@ import {
   indexPath,
   pruneHistory,
   deleteIndex,
+  isWorthRecording,
   readIndex,
   planRestore,
   restorable,
@@ -25,6 +26,8 @@ import { getPreview, oneLine } from './preview';
 const liveKeys = new WeakMap<vscode.Terminal, string>();
 let timer: NodeJS.Timeout | undefined;
 let scanning = false;
+/** Commands seen before the terminal had a record; the next scan attaches them. */
+const pendingCommand = new Map<string, { cmd: string; at: string }>();
 
 export function activate(context: vscode.ExtensionContext): void {
   const folder = workspaceFolder();
@@ -39,6 +42,7 @@ export function activate(context: vscode.ExtensionContext): void {
     vscode.window.onDidOpenTerminal(() => scheduleScan(folder, 2500)),
     vscode.window.onDidCloseTerminal((t) => onClosed(folder, t)),
     vscode.window.onDidChangeActiveTerminal(() => scheduleScan(folder, 1500)),
+    vscode.window.onDidStartTerminalShellExecution((e) => void onShellExecution(folder, e)),
     { dispose: () => timer && clearTimeout(timer) },
   );
 
@@ -148,6 +152,8 @@ async function scan(folder: string): Promise<void> {
           openedAt: now,
           lastSeen: now,
           closedAt: null,
+          lastCommand: null,
+          lastCommandAt: null,
         };
         ix.terminals.push(rec);
       }
@@ -168,6 +174,12 @@ async function scan(folder: string): Promise<void> {
       if (r.title) {
         rec.title = r.title;
       }
+      const pend = pendingCommand.get(key);
+      if (pend) {
+        rec.lastCommand = pend.cmd;
+        rec.lastCommandAt = pend.at;
+        pendingCommand.delete(key);
+      }
     }
 
     // Anything in the index that is not on screen has gone.
@@ -184,6 +196,42 @@ async function scan(folder: string): Promise<void> {
   } finally {
     scanning = false;
   }
+}
+
+/**
+ * What a plain terminal was last doing. VS Code revives a shell with its
+ * directory but not with the thing that was running in it, and over SSH not
+ * even the directory survives a server restart -- the command is then the
+ * only part of the terminal left worth bringing back.
+ */
+async function onShellExecution(
+  folder: string,
+  e: vscode.TerminalShellExecutionStartEvent,
+): Promise<void> {
+  const line = e.execution.commandLine;
+  // Low confidence means VS Code read it off the screen without markers from
+  // the shell integration script, so it may not be a command at all.
+  if (line.confidence === vscode.TerminalShellExecutionCommandLineConfidence.Low) {
+    return;
+  }
+  if (!isWorthRecording(line.value)) {
+    return;
+  }
+  const pid = await pidOf(e.terminal);
+  if (pid === null) {
+    return;
+  }
+  const key = liveKeys.get(e.terminal) ?? keyFor(e.terminal, pid);
+  const entry = { cmd: line.value.trim(), at: new Date().toISOString() };
+  const ix = readIndex(folder);
+  const rec = ix.terminals.find((t) => t.key === key);
+  if (!rec) {
+    pendingCommand.set(key, entry); // the scan has not reached this terminal yet
+    return;
+  }
+  rec.lastCommand = entry.cmd;
+  rec.lastCommandAt = entry.at;
+  writeIndex(ix);
 }
 
 function onClosed(folder: string, term: vscode.Terminal): void {
@@ -278,7 +326,13 @@ async function restoreTerminals(folder: string): Promise<void> {
   const items: Choice[] = candidates.map((rec) => {
     const p = rec.session ? getPreview(rec.app, rec.session, rec.cwd) : null;
     const title = p?.title ?? rec.title;
-    const detail = p?.lastPrompt ? '> ' + oneLine(p.lastPrompt) : rec.session ? '' : noSessionNote(rec.app);
+    const detail = p?.lastPrompt
+      ? '> ' + oneLine(p.lastPrompt)
+      : rec.app === 'shell' && rec.lastCommand
+        ? '$ ' + oneLine(rec.lastCommand)
+        : rec.session
+          ? ''
+          : noSessionNote(rec.app);
     return {
       rec,
       label: `$(${iconFor(rec.app)}) ${title ?? rec.name}`,
@@ -339,6 +393,12 @@ function openFor(rec: TerminalRecord, reuse?: vscode.Terminal): void {
   const cmd = resumeCommand(rec);
   if (cmd) {
     term.sendText(cmd, true);
+    return;
+  }
+  // A plain shell: put the command back on the prompt WITHOUT running it.
+  // Reopening a window must never re-run a deploy, a migration or an rm.
+  if (rec.lastCommand) {
+    term.sendText(rec.lastCommand, false);
   }
 }
 
@@ -429,6 +489,9 @@ function row(t: TerminalRecord): string {
   }
   if (p?.lastReply) {
     parts.push(`  - ‹ ${oneLine(p.lastReply, 140)}`);
+  }
+  if (t.app === 'shell' && t.lastCommand) {
+    parts.push(`  - $ ${oneLine(t.lastCommand, 140)}`);
   }
   if (!t.session && t.app !== 'shell') {
     parts.push(`  - ${noSessionNote(t.app)}`);
