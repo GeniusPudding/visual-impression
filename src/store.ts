@@ -109,9 +109,35 @@ export function restorable(
   ix: WorkspaceIndex,
   openKeys: ReadonlySet<string> = new Set(),
 ): TerminalRecord[] {
-  return ix.terminals
+  // A conversation that is running right now is not something to bring back,
+  // whichever terminal happens to be holding it.
+  const live = new Set(
+    ix.terminals.filter((t) => !t.closedAt && t.session).map((t) => t.session as string),
+  );
+  const rows = ix.terminals
     .filter((t) => t.closedAt && !openKeys.has(t.key))
+    // A shell that ran nothing has nothing to restore. VS Code revives those
+    // itself, with their directory and their scrollback, and offering a
+    // fourth empty prompt alongside is noise.
+    .filter((t) => t.app !== 'shell' || t.lastCommand)
+    .filter((t) => !t.session || !live.has(t.session))
     .sort((a, b) => Date.parse(b.closedAt as string) - Date.parse(a.closedAt as string));
+
+  // One row per conversation. Records are keyed by pid, so every reopen of
+  // the window writes the same conversation again under a new key; the newest
+  // is the one to offer, and offering the others would put several terminals
+  // on one conversation.
+  const seen = new Set<string>();
+  return rows.filter((t) => {
+    if (!t.session) {
+      return true;
+    }
+    if (seen.has(t.session)) {
+      return false;
+    }
+    seen.add(t.session);
+    return true;
+  });
 }
 
 /**

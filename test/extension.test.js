@@ -283,12 +283,19 @@ test('store: prunes closed terminals past the window but never open ones', () =>
   assert.deepStrictEqual(ix.terminals.map((t) => t.key), ['b', 'c']);
 });
 
+const rec = (over) => Object.assign({
+  key: 'k', name: 'bash', cwd: '/w', shellPid: 1, app: 'claude', session: null,
+  title: null, openedAt: '', lastSeen: '', closedAt: null,
+  lastCommand: null, lastCommandAt: null,
+}, over);
+const ixOf = (...terminals) => ({ version: 1, folder: '/w', updatedAt: '', terminals });
+
 test('restorable: offers closed records, newest first', () => {
-  const ix = { version: 1, folder: 'C:\work\repo', updatedAt: '', terminals: [
-    { key: 'a', app: 'claude', closedAt: '2026-10-20T08:00:00.000Z' },
-    { key: 'b', app: 'codex',  closedAt: '2026-10-20T09:00:00.000Z' },
-    { key: 'c', app: 'claude', closedAt: null },
-  ] };
+  const ix = ixOf(
+    rec({ key: 'a', session: 'sa', closedAt: '2026-10-20T08:00:00.000Z' }),
+    rec({ key: 'b', session: 'sb', closedAt: '2026-10-20T09:00:00.000Z' }),
+    rec({ key: 'c', session: 'sc', closedAt: null }),
+  );
   assert.deepStrictEqual(store.restorable(ix).map((t) => t.key), ['b', 'a']);
 });
 
@@ -329,6 +336,42 @@ test('isWorthRecording: ignores the resume commands this extension sends', () =>
   assert.strictEqual(store.isWorthRecording('claude -c'), false);
   assert.strictEqual(store.isWorthRecording('codex resume abc-123'), false);
   assert.ok(store.isWorthRecording('codex exec "fix the build"'));
+});
+
+// A record is keyed by pid, so reopening the window writes the same
+// conversation again under a new key. Six rows for one conversation and three
+// empty shells is what that looked like before this.
+test('REGRESSION -- restorable: one row per conversation, newest kept', () => {
+  const ix = ixOf(
+    rec({ key: 'old', session: 'same', closedAt: '2026-10-20T08:00:00.000Z' }),
+    rec({ key: 'new', session: 'same', closedAt: '2026-10-20T09:00:00.000Z' }),
+  );
+  assert.deepStrictEqual(store.restorable(ix).map((t) => t.key), ['new']);
+});
+
+test('REGRESSION -- restorable: never offers a conversation that is running', () => {
+  const ix = ixOf(
+    rec({ key: 'closed', session: 'same', closedAt: '2026-10-20T08:00:00.000Z' }),
+    rec({ key: 'live', session: 'same', closedAt: null }),
+  );
+  assert.deepStrictEqual(store.restorable(ix), []);
+});
+
+test('restorable: a shell that ran nothing is not worth offering', () => {
+  const ix = ixOf(
+    rec({ key: 'empty', app: 'shell', closedAt: '2026-10-20T08:00:00.000Z' }),
+    rec({ key: 'ran', app: 'shell', lastCommand: 'npm run dev', closedAt: '2026-10-20T08:00:00.000Z' }),
+  );
+  assert.deepStrictEqual(store.restorable(ix).map((t) => t.key), ['ran']);
+});
+
+// Two different conversations are two rows, however alike they look.
+test('restorable: keeps distinct sessions apart', () => {
+  const ix = ixOf(
+    rec({ key: 'a', session: 'one', closedAt: '2026-10-20T08:00:00.000Z' }),
+    rec({ key: 'b', session: 'two', closedAt: '2026-10-20T09:00:00.000Z' }),
+  );
+  assert.deepStrictEqual(store.restorable(ix).map((t) => t.key), ['b', 'a']);
 });
 
 // ------------------------------------------------------------------ posix --
