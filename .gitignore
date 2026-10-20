@@ -1,4 +1,4 @@
 node_modules/
 out/
 *.vsix
-vscode/state.vscdb
+state.vscdb

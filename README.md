@@ -1,18 +1,19 @@
-# windoalls for VS Code
+# Visual Impression
 
 Remembers which AI coding conversation was running in which terminal, per
-project, and offers them back when you reopen the folder.
+project, and offers them back when you reopen the folder. Windows, macOS and
+Linux, including over Remote SSH.
 
 VS Code already restores the *shell* in a terminal. What it cannot restore is
 the conversation that was running inside it, because only the agent knows that
 and only the window knows which terminal was which.
 
-## Why an extension, and not the terminal tool
+## Why an extension, and not an outside tool
 
-The rest of windoalls tracks Windows Terminal tabs from outside, by walking the
-process tree. That cannot work here: every terminal in a VS Code window hangs
-off one shared `ptyHost` process, so nothing outside the window can tell which
-window -- and therefore which project -- a terminal belongs to.
+A tool outside the editor can watch the process tree and find the agents
+easily enough. What it cannot do is say which window they belong to: every
+terminal in a VS Code window hangs off one shared `ptyHost` process, so from
+outside, six projects' terminals are indistinguishable.
 
 From inside, it is unambiguous. The extension is handed each terminal's shell
 pid directly, and it already knows the workspace.
@@ -21,9 +22,9 @@ pid directly, and it already knows the workspace.
 
 | Command | What it does |
 |---|---|
-| `windoalls: Restore terminals` | pick from the agent terminals recorded in this project and bring them back, conversation and all |
-| `windoalls: Show tracked terminals` | a read-only markdown view of what is open and what can be recovered |
-| `windoalls: Forget this workspace's history` | delete this project's index |
+| `Visual Impression: Restore terminals` | pick from the agent terminals recorded in this project and bring them back, conversation and all |
+| `Visual Impression: Show tracked terminals` | a read-only markdown view of what is open and what can be recovered |
+| `Visual Impression: Forget this workspace's history` | delete this project's index |
 
 When you open a project that has recorded terminals, a notification offers to
 restore them. Everything is pre-checked, so `Restore…` then Enter brings the
@@ -33,10 +34,10 @@ project back. `Don't ask again` turns the notification off for good.
 
 | Setting | Default | |
 |---|---|---|
-| `windoalls.promptOnStartup` | `true` | offer to restore when a project with history is opened |
-| `windoalls.scanIntervalSeconds` | `45` | how often to re-check which agent each terminal is running |
-| `windoalls.historyDays` | `14` | forget terminals closed longer ago than this |
-| `windoalls.reuseRevivedTerminals` | `true` | resume into a terminal VS Code revived rather than opening another |
+| `visualImpression.promptOnStartup` | `true` | offer to restore when a project with history is opened |
+| `visualImpression.scanIntervalSeconds` | `45` | how often to re-check which agent each terminal is running |
+| `visualImpression.historyDays` | `14` | forget terminals closed longer ago than this |
+| `visualImpression.reuseRevivedTerminals` | `true` | resume into a terminal VS Code revived rather than opening another |
 
 ## Where it stores things
 
@@ -126,4 +127,8 @@ npm run package     # builds the .vsix
 
 Press `F5` in VS Code to launch an Extension Development Host.
 
-MIT, same as the rest of the repository.
+MIT.
+
+The Windows Terminal side of the same problem -- tabs outside VS Code -- is
+handled by [windoalls](https://github.com/GeniusPudding/windoalls), which
+reads this extension's index so that one command answers "where was I".

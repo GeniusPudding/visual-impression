@@ -1,4 +1,4 @@
-// windoalls for VS Code.
+// Visual Impression.
 //
 // VS Code already restores the shell in a terminal. What it cannot restore is
 // the conversation that was running in it, because only the agent knows that
@@ -36,9 +36,9 @@ export function activate(context: vscode.ExtensionContext): void {
   }
 
   context.subscriptions.push(
-    vscode.commands.registerCommand('windoalls.restoreTerminals', () => restoreTerminals(folder)),
-    vscode.commands.registerCommand('windoalls.showStatus', () => showStatus(folder)),
-    vscode.commands.registerCommand('windoalls.forgetWorkspace', () => forgetWorkspace(folder)),
+    vscode.commands.registerCommand('visualImpression.restoreTerminals', () => restoreTerminals(folder)),
+    vscode.commands.registerCommand('visualImpression.showStatus', () => showStatus(folder)),
+    vscode.commands.registerCommand('visualImpression.forgetWorkspace', () => forgetWorkspace(folder)),
     vscode.window.onDidOpenTerminal(() => scheduleScan(folder, 2500)),
     vscode.window.onDidCloseTerminal((t) => onClosed(folder, t)),
     vscode.window.onDidChangeActiveTerminal(() => scheduleScan(folder, 1500)),
@@ -88,7 +88,7 @@ function workspaceFolder(): string | undefined {
 }
 
 function cfg<T>(key: string, fallback: T): T {
-  return vscode.workspace.getConfiguration('windoalls').get<T>(key) ?? fallback;
+  return vscode.workspace.getConfiguration('visualImpression').get<T>(key) ?? fallback;
 }
 
 // ------------------------------------------------------------- recording ----
@@ -319,7 +319,7 @@ async function restoreTerminals(folder: string): Promise<void> {
   const candidates = restorable(readIndex(folder), await openKeysNow());
 
   if (!candidates.length) {
-    void vscode.window.showInformationMessage('windoalls: nothing recorded to bring back for this project yet.');
+    void vscode.window.showInformationMessage('Visual Impression: nothing recorded to bring back for this project yet.');
     return;
   }
 
@@ -440,7 +440,7 @@ async function offerRestoreOnStartup(folder: string): Promise<void> {
     return;
   }
   const pick = await vscode.window.showInformationMessage(
-    `windoalls: ${n} agent terminal${n === 1 ? '' : 's'} recorded in this project.`,
+    `Visual Impression: ${n} agent terminal${n === 1 ? '' : 's'} recorded in this project.`,
     'Restore…',
     'Not now',
     "Don't ask again",
@@ -449,7 +449,7 @@ async function offerRestoreOnStartup(folder: string): Promise<void> {
     await restoreTerminals(folder);
   } else if (pick === "Don't ask again") {
     await vscode.workspace
-      .getConfiguration('windoalls')
+      .getConfiguration('visualImpression')
       .update('promptOnStartup', false, vscode.ConfigurationTarget.Global);
   }
 }
@@ -459,7 +459,7 @@ async function offerRestoreOnStartup(folder: string): Promise<void> {
 async function showStatus(folder: string): Promise<void> {
   await scan(folder);
   const ix = readIndex(folder);
-  const lines: string[] = [`# windoalls`, '', folder, ''];
+  const lines: string[] = [`# Visual Impression`, '', folder, ''];
 
   const live = ix.terminals.filter((t) => !t.closedAt);
   const gone = ix.terminals
@@ -501,13 +501,13 @@ function row(t: TerminalRecord): string {
 
 async function forgetWorkspace(folder: string): Promise<void> {
   const yes = await vscode.window.showWarningMessage(
-    'Delete windoalls history for this project? Open terminals are recorded again on the next scan.',
+    'Delete the recorded history for this project? Open terminals are recorded again on the next scan.',
     { modal: true },
     'Delete',
   );
   if (yes === 'Delete') {
     deleteIndex(folder);
-    void vscode.window.showInformationMessage('windoalls: history cleared.');
+    void vscode.window.showInformationMessage('Visual Impression: history cleared.');
   }
 }
 
