@@ -93,7 +93,17 @@ fi
 
 say ''
 say "Installing Visual Impression from $ROOT"
-npm install --no-audit --no-fund --silent
+# npm ci, not npm install: it installs exactly what the lockfile says and
+# never writes to it. npm install does write to it -- the optional
+# per-platform binaries that vsce's keyring pulls in resolve differently on
+# each OS -- which leaves the checkout dirty and the next git pull refusing
+# to run. Falls back when there is no lockfile, or when it has drifted from
+# package.json and npm ci rightly refuses.
+if [ -f package-lock.json ]; then
+  npm ci --no-audit --no-fund --silent || npm install --no-audit --no-fund --silent
+else
+  npm install --no-audit --no-fund --silent
+fi
 npm test
 npx --yes vsce package --no-dependencies
 VSIX=$(ls -t ./*.vsix | head -1)

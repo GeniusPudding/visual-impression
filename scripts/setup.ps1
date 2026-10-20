@@ -71,7 +71,17 @@ Write-Host ''
 Write-Host "Installing Visual Impression from $Root" -ForegroundColor Cyan
 Push-Location $Root
 try {
-  & npm install --no-audit --no-fund --silent
+  # npm ci, not npm install: it installs exactly what the lockfile says and
+  # never writes to it. npm install does write to it -- the optional
+  # per-platform binaries that vsce's keyring pulls in resolve differently on
+  # each OS -- which leaves the checkout dirty and the next git pull refusing
+  # to run.
+  if (Test-Path (Join-Path $Root 'package-lock.json')) {
+    & npm ci --no-audit --no-fund --silent
+    if ($LASTEXITCODE -ne 0) { & npm install --no-audit --no-fund --silent }
+  } else {
+    & npm install --no-audit --no-fund --silent
+  }
   & npm test
   & npx --yes vsce package --no-dependencies
   $vsix = Get-ChildItem $Root -Filter '*.vsix' -File | Sort-Object LastWriteTime -Descending | Select-Object -First 1
