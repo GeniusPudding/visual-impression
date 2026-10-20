@@ -13,6 +13,7 @@ import {
   pruneHistory,
   deleteIndex,
   readIndex,
+  planRestore,
   restorable,
   writeIndex,
 } from './store';
@@ -299,14 +300,41 @@ async function restoreTerminals(folder: string): Promise<void> {
   if (!picked?.length) {
     return;
   }
-  for (const choice of picked) {
-    openFor(choice.rec);
-  }
+  const spare = await spareTerminals(folder);
+  const reuse = planRestore(picked.length, spare.length);
+  picked.forEach((choice, i) => openFor(choice.rec, reuse[i] ? spare.shift() : undefined));
   scheduleScan(folder, 4000);
 }
 
-function openFor(rec: TerminalRecord): void {
-  const term = vscode.window.createTerminal({ name: rec.title ?? rec.name, cwd: rec.cwd });
+/**
+ * Terminals VS Code revived by itself: plain shells in this project with no
+ * agent in them. These are the ones sitting in the original split layout, so
+ * resuming into one keeps the arrangement instead of adding another tab
+ * beside it.
+ */
+async function spareTerminals(folder: string): Promise<vscode.Terminal[]> {
+  if (!cfg('reuseRevivedTerminals', true)) {
+    return [];
+  }
+  const out: vscode.Terminal[] = [];
+  for (const t of vscode.window.terminals) {
+    if (t.exitStatus) {
+      continue;
+    }
+    const pid = await pidOf(t);
+    if (pid === null) {
+      continue;
+    }
+    const r = await resolveTerminal(pid, cwdOf(t) ?? folder);
+    if (r.app === 'shell') {
+      out.push(t);
+    }
+  }
+  return out;
+}
+
+function openFor(rec: TerminalRecord, reuse?: vscode.Terminal): void {
+  const term = reuse ?? vscode.window.createTerminal({ name: rec.title ?? rec.name, cwd: rec.cwd });
   term.show(false);
   const cmd = resumeCommand(rec);
   if (cmd) {

@@ -111,6 +111,19 @@ export function restorable(
     .sort((a, b) => Date.parse(b.closedAt as string) - Date.parse(a.closedAt as string));
 }
 
+/**
+ * How many of the chosen records get one of the terminals VS Code revived,
+ * and how many need a terminal of their own. Reusing a revived terminal is
+ * what preserves a split: VS Code rebuilds the arrangement from its own
+ * layout record, and the extension API can neither read that arrangement nor
+ * reproduce it, so the only way to land inside it is to use what is already
+ * there.
+ */
+export function planRestore(count: number, spares: number): boolean[] {
+  const budget = Math.max(0, Math.min(count, spares));
+  return Array.from({ length: Math.max(0, count) }, (_, i) => i < budget);
+}
+
 export function deleteIndex(folder: string): void {
   try {
     fs.unlinkSync(indexPath(folder));

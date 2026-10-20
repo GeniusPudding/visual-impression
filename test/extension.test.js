@@ -292,6 +292,13 @@ test('REGRESSION -- restorable: never offers a terminal that is on screen', () =
   assert.deepStrictEqual(store.restorable(ix, new Set(['5320:pwsh', '4100:pwsh'])), []);
 });
 
+test('planRestore: uses every revived terminal before opening a new one', () => {
+  assert.deepStrictEqual(store.planRestore(3, 2), [true, true, false]);
+  assert.deepStrictEqual(store.planRestore(2, 5), [true, true]);
+  assert.deepStrictEqual(store.planRestore(2, 0), [false, false]);
+  assert.deepStrictEqual(store.planRestore(0, 3), []);
+});
+
 // ----------------------------------------------------------------- format --
 
 test('oneLine: flattens and truncates', () => {

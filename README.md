@@ -36,6 +36,7 @@ project back. `Don't ask again` turns the notification off for good.
 | `windoalls.promptOnStartup` | `true` | offer to restore when a project with history is opened |
 | `windoalls.scanIntervalSeconds` | `45` | how often to re-check which agent each terminal is running |
 | `windoalls.historyDays` | `14` | forget terminals closed longer ago than this |
+| `windoalls.reuseRevivedTerminals` | `true` | resume into a terminal VS Code revived rather than opening another |
 
 ## Where it stores things
 
@@ -73,6 +74,15 @@ read `session_meta`, never the file name.
   not offered by default; VS Code's own terminal persistence covers it.
 - **An agent started and exited** keeps its record: the conversation it ran is
   still the thing worth restoring, so the app is never downgraded to `shell`.
+- **The split layout cannot be read.** `window.terminals` is a flat list and
+  `Terminal` exposes no group, so an extension cannot see which terminals share
+  a tab. VS Code keeps that arrangement itself, in
+  `terminal.integrated.layoutInfo`, keyed by a persistent process id the
+  extension API never hands out -- so even reading it would not map back to a
+  record. Instead of fighting this, a restore resumes into the terminals VS
+  Code has already revived, which are by definition sitting in the original
+  arrangement. Which pane ends up with which conversation may differ; the
+  arrangement survives.
 - **The scrollback does not come back.** The conversation resumes from the
   agent's own log; whatever was printed on screen is gone.
 

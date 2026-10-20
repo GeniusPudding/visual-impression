@@ -60,6 +60,11 @@
           "type": "number",
           "default": 14,
           "description": "Forget terminals that closed more than this many days ago."
+        },
+        "windoalls.reuseRevivedTerminals": {
+          "type": "boolean",
+          "default": true,
+          "description": "When restoring, resume into a terminal VS Code revived by itself rather than opening another one. This is what keeps a split layout: VS Code rebuilds the arrangement, and a conversation resumed into one of those terminals lands inside it."
         }
       }
     }
