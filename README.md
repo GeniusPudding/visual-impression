@@ -83,6 +83,7 @@ there is nothing to bring back. Missing the notification costs nothing.
 | `visualImpression.promptOnStartup` | `true` | offer to restore when a project with history is opened |
 | `visualImpression.scanIntervalSeconds` | `45` | how often to re-check which agent each terminal is running |
 | `visualImpression.historyDays` | `14` | forget terminals closed longer ago than this |
+| `visualImpression.restoreTerminalsPerTab` | `3` | how many new terminals to place side by side as splits in one tab; `1` = a tab each |
 | `visualImpression.reuseRevivedTerminals` | `true` | resume into a terminal VS Code revived rather than opening another |
 
 ## Where it stores things
@@ -159,6 +160,18 @@ records nothing, which is the honest outcome.
   Code has already revived, which are by definition sitting in the original
   arrangement. Which pane ends up with which conversation may differ; the
   arrangement survives.
+
+  When there is nothing to revive -- a window reopened after the pty host is
+  gone, the normal case for a Remote SSH window -- the arrangement is gone
+  with it and the extension has to pick one. It splits the restored terminals
+  into groups of `visualImpression.restoreTerminalsPerTab` (3) rather than
+  giving each a tab of its own, so the project comes back with several
+  terminals on screen instead of one visible and the rest hidden behind tabs.
+  Creating a terminal beside a given parent is the one piece of layout the
+  API does allow. To rearrange afterwards: **Terminal: Join Terminals...**
+  from the command palette merges another terminal into the active tab, and
+  multi-selecting tabs in the terminal list offers **Join Terminals** on the
+  right-click menu. Relative pane sizes cannot be set by an extension at all.
 - **A conversation is offered once.** Records are keyed by shell pid, so
   every reopen of the window writes the same conversation again under a new
   key. The picker shows the newest of them and hides a conversation that is

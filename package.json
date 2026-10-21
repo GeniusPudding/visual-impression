@@ -66,6 +66,12 @@
           "default": 14,
           "description": "Forget terminals that closed more than this many days ago."
         },
+        "visualImpression.restoreTerminalsPerTab": {
+          "type": "number",
+          "default": 3,
+          "minimum": 1,
+          "description": "When a restore has to open new terminals, how many to place side by side as splits in one tab. VS Code does not let an extension read the layout a project had, so this is the shape it falls back to. Set it to 1 for one tab per terminal."
+        },
         "visualImpression.reuseRevivedTerminals": {
           "type": "boolean",
           "default": true,

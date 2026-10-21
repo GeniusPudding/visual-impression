@@ -15,7 +15,7 @@ import {
   deleteIndex,
   isWorthRecording,
   readIndex,
-  planRestore,
+  planPlacements,
   restorable,
   writeIndex,
 } from './store';
@@ -383,8 +383,16 @@ async function restoreTerminals(folder: string): Promise<void> {
     return;
   }
   const spare = await spareTerminals(folder);
-  const reuse = planRestore(picked.length, spare.length);
-  picked.forEach((choice, i) => openFor(choice.rec, reuse[i] ? spare.shift() : undefined));
+  const plan = planPlacements(picked.length, spare.length, cfg('restoreTerminalsPerTab', 3));
+  const opened: vscode.Terminal[] = [];
+  picked.forEach((choice, i) => {
+    const where = plan[i];
+    opened[i] = openFor(
+      choice.rec,
+      where.kind === 'reuse' ? spare.shift() : undefined,
+      where.kind === 'split' ? opened[where.parent] : undefined,
+    );
+  });
   scheduleScan(folder, 4000);
 }
 
@@ -415,19 +423,35 @@ async function spareTerminals(folder: string): Promise<vscode.Terminal[]> {
   return out;
 }
 
-function openFor(rec: TerminalRecord, reuse?: vscode.Terminal): void {
-  const term = reuse ?? vscode.window.createTerminal({ name: rec.title ?? rec.name, cwd: rec.cwd });
+/**
+ * `splitOf` puts the new terminal in the same tab as an earlier restored one,
+ * which is the only layout control the API offers: a terminal can be created
+ * beside a given parent, but no terminal can be asked which tab it is in.
+ */
+function openFor(
+  rec: TerminalRecord,
+  reuse?: vscode.Terminal,
+  splitOf?: vscode.Terminal,
+): vscode.Terminal {
+  const term =
+    reuse ??
+    vscode.window.createTerminal({
+      name: rec.title ?? rec.name,
+      cwd: rec.cwd,
+      ...(splitOf ? { location: { parentTerminal: splitOf } } : {}),
+    });
   term.show(false);
   const cmd = resumeCommand(rec);
   if (cmd) {
     term.sendText(cmd, true);
-    return;
+    return term;
   }
   // A plain shell: put the command back on the prompt WITHOUT running it.
   // Reopening a window must never re-run a deploy, a migration or an rm.
   if (rec.lastCommand) {
     term.sendText(rec.lastCommand, false);
   }
+  return term;
 }
 
 /**

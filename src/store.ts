@@ -141,14 +141,6 @@ export function restorable(
 }
 
 /**
- * How many of the chosen records get one of the terminals VS Code revived,
- * and how many need a terminal of their own. Reusing a revived terminal is
- * what preserves a split: VS Code rebuilds the arrangement from its own
- * layout record, and the extension API can neither read that arrangement nor
- * reproduce it, so the only way to land inside it is to use what is already
- * there.
- */
-/**
  * Whether a command is worth putting back on the prompt when the terminal
  * returns. Navigation and screen-clearing are not: the restored terminal
  * already opens in the right directory, and offering `clear` back would only
@@ -167,9 +159,50 @@ export function isWorthRecording(command: string): boolean {
   return !['cd', 'ls', 'll', 'dir', 'pwd', 'clear', 'cls', 'exit', 'logout'].includes(verb);
 }
 
-export function planRestore(count: number, spares: number): boolean[] {
-  const budget = Math.max(0, Math.min(count, spares));
-  return Array.from({ length: Math.max(0, count) }, (_, i) => i < budget);
+/** Where one restored conversation goes. */
+export type Placement =
+  /** Into a terminal VS Code revived by itself, which is already in a pane. */
+  | { kind: 'reuse' }
+  /** Into a terminal of its own, in a new tab. */
+  | { kind: 'tab' }
+  /** Split beside an earlier restored one; `parent` indexes the same plan. */
+  | { kind: 'split'; parent: number };
+
+/**
+ * Where each chosen record goes, in order.
+ *
+ * Reuse comes first and preserves the real layout: VS Code rebuilds the
+ * arrangement from its own layout record, and the extension API can neither
+ * read that arrangement nor reproduce it, so the only way to land inside it
+ * is to use what is already there.
+ *
+ * When there is nothing to reuse -- a window reopened after the pty host is
+ * gone, which is the normal case over SSH -- the layout is lost and the
+ * extension has to choose one. Opening a tab per terminal turns four panes
+ * into four tabs and one visible terminal, so instead they are split into
+ * groups of `perTab`. That is not the old arrangement, but it is the same
+ * shape of workspace: several terminals on screen at once.
+ */
+export function planPlacements(count: number, spares: number, perTab = 3): Placement[] {
+  const n = Math.max(0, Math.floor(count));
+  const reused = Math.max(0, Math.min(n, Math.floor(spares)));
+  const size = Math.max(1, Math.floor(perTab));
+  const out: Placement[] = [];
+  let leader = -1;
+  for (let i = 0; i < n; i++) {
+    if (i < reused) {
+      out.push({ kind: 'reuse' });
+      continue;
+    }
+    const nth = i - reused; // position among the ones needing a new terminal
+    if (nth % size === 0) {
+      leader = i;
+      out.push({ kind: 'tab' });
+    } else {
+      out.push({ kind: 'split', parent: leader });
+    }
+  }
+  return out;
 }
 
 export function deleteIndex(folder: string): void {
