@@ -83,7 +83,7 @@ there is nothing to bring back. Missing the notification costs nothing.
 | `visualImpression.promptOnStartup` | `true` | offer to restore when a project with history is opened |
 | `visualImpression.scanIntervalSeconds` | `45` | how often to re-check which agent each terminal is running |
 | `visualImpression.historyDays` | `14` | forget terminals closed longer ago than this |
-| `visualImpression.restoreTerminalsPerTab` | `3` | how many new terminals to place side by side as splits in one tab; `1` = a tab each |
+| `visualImpression.restoreTerminalsPerTab` | `3` | how many new terminals to place side by side as splits in one tab; `1` = a tab each; a list such as `[2, 1, 3]` gives each tab its own count |
 | `visualImpression.reuseRevivedTerminals` | `true` | resume into a terminal VS Code revived rather than opening another |
 
 ## Where it stores things
@@ -168,7 +168,10 @@ records nothing, which is the honest outcome.
   giving each a tab of its own, so the project comes back with several
   terminals on screen instead of one visible and the rest hidden behind tabs.
   Creating a terminal beside a given parent is the one piece of layout the
-  API does allow. To rearrange afterwards: **Terminal: Join Terminals...**
+  API does allow. Since the old grouping cannot be recovered, that setting is
+  also where a project can state it: `[2, 1, 3]` means two panes in the first
+  tab, one in the second, three in the third, and the last entry repeats.
+  Pane order follows the picker, left to right. To rearrange afterwards: **Terminal: Join Terminals...**
   from the command palette merges another terminal into the active tab, and
   multi-selecting tabs in the terminal list offers **Join Terminals** on the
   right-click menu. Relative pane sizes cannot be set by an extension at all.

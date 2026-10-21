@@ -17,6 +17,7 @@ import {
   readIndex,
   planPlacements,
   restorable,
+  TabSizes,
   writeIndex,
 } from './store';
 import { invalidateProcessCache } from './procs';
@@ -383,7 +384,7 @@ async function restoreTerminals(folder: string): Promise<void> {
     return;
   }
   const spare = await spareTerminals(folder);
-  const plan = planPlacements(picked.length, spare.length, cfg('restoreTerminalsPerTab', 3));
+  const plan = planPlacements(picked.length, spare.length, cfg<TabSizes>('restoreTerminalsPerTab', 3));
   const opened: vscode.Terminal[] = [];
   picked.forEach((choice, i) => {
     const where = plan[i];

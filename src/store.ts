@@ -105,6 +105,38 @@ export function pruneHistory(ix: WorkspaceIndex, days: number): void {
  * live again a moment later; offering that back would start a second agent on
  * a conversation already running in the terminal next door.
  */
+/** Closes further apart than this were two separate decisions, not one. */
+const BATCH_MS = 120_000;
+
+/**
+ * Newest group of closures first, and inside a group the order the terminals
+ * were on screen.
+ *
+ * Sorting purely by close time looked right and was not: closing a window
+ * stamps each terminal as its own event, milliseconds apart in whatever order
+ * the shells happen to exit, so four panes came back shuffled. Those four
+ * closures are one event. Within it the index order is the better answer --
+ * records are appended in `window.terminals` order, which for terminals VS
+ * Code revived is its own layout order, left to right.
+ */
+function orderForScreen(rows: { t: TerminalRecord; at: number }[]): TerminalRecord[] {
+  const byTime = [...rows].sort(
+    (a, b) => Date.parse(b.t.closedAt as string) - Date.parse(a.t.closedAt as string),
+  );
+  let batch = 0;
+  let previous = Number.NaN;
+  const grouped = byTime.map((r) => {
+    const closed = Date.parse(r.t.closedAt as string);
+    if (previous - closed > BATCH_MS) {
+      batch++;
+    }
+    previous = closed;
+    return { ...r, batch };
+  });
+  grouped.sort((a, b) => a.batch - b.batch || a.at - b.at);
+  return grouped.map((r) => r.t);
+}
+
 export function restorable(
   ix: WorkspaceIndex,
   openKeys: ReadonlySet<string> = new Set(),
@@ -114,14 +146,16 @@ export function restorable(
   const live = new Set(
     ix.terminals.filter((t) => !t.closedAt && t.session).map((t) => t.session as string),
   );
-  const rows = ix.terminals
-    .filter((t) => t.closedAt && !openKeys.has(t.key))
-    // A shell that ran nothing has nothing to restore. VS Code revives those
-    // itself, with their directory and their scrollback, and offering a
-    // fourth empty prompt alongside is noise.
-    .filter((t) => t.app !== 'shell' || t.lastCommand)
-    .filter((t) => !t.session || !live.has(t.session))
-    .sort((a, b) => Date.parse(b.closedAt as string) - Date.parse(a.closedAt as string));
+  const rows = orderForScreen(
+    ix.terminals
+      .map((t, at) => ({ t, at }))
+      .filter(({ t }) => t.closedAt && !openKeys.has(t.key))
+      // A shell that ran nothing has nothing to restore. VS Code revives those
+      // itself, with their directory and their scrollback, and offering a
+      // fourth empty prompt alongside is noise.
+      .filter(({ t }) => t.app !== 'shell' || t.lastCommand)
+      .filter(({ t }) => !t.session || !live.has(t.session)),
+  );
 
   // One row per conversation. Records are keyed by pid, so every reopen of
   // the window writes the same conversation again under a new key; the newest
@@ -165,8 +199,29 @@ export type Placement =
   | { kind: 'reuse' }
   /** Into a terminal of its own, in a new tab. */
   | { kind: 'tab' }
-  /** Split beside an earlier restored one; `parent` indexes the same plan. */
+  /** Split beside the previous restored one; `parent` indexes the same plan. */
   | { kind: 'split'; parent: number };
+
+/**
+ * How many panes each new tab gets. A single number repeats; a list gives the
+ * tabs their own sizes, and its last entry repeats once the list runs out, so
+ * `[2, 1]` is two, then one, then one, then one.
+ */
+export type TabSizes = number | number[];
+
+function sizeOfTab(perTab: TabSizes, tab: number): number {
+  if (typeof perTab === 'number') {
+    return clampSize(perTab);
+  }
+  if (!perTab.length) {
+    return 1;
+  }
+  return clampSize(perTab[Math.min(tab, perTab.length - 1)]);
+}
+
+function clampSize(n: number): number {
+  return Number.isFinite(n) ? Math.max(1, Math.floor(n)) : 1;
+}
 
 /**
  * Where each chosen record goes, in order.
@@ -180,26 +235,32 @@ export type Placement =
  * gone, which is the normal case over SSH -- the layout is lost and the
  * extension has to choose one. Opening a tab per terminal turns four panes
  * into four tabs and one visible terminal, so instead they are split into
- * groups of `perTab`. That is not the old arrangement, but it is the same
+ * tabs of `perTab` panes. That is not the old arrangement, but it is the same
  * shape of workspace: several terminals on screen at once.
+ *
+ * Each split names the one before it, not the tab's first terminal. VS Code
+ * inserts a split immediately after its parent, so splitting everything off
+ * the first pane builds the tab backwards: 1, 2, 3 comes out as 1, 3, 2.
  */
-export function planPlacements(count: number, spares: number, perTab = 3): Placement[] {
+export function planPlacements(count: number, spares: number, perTab: TabSizes = 3): Placement[] {
   const n = Math.max(0, Math.floor(count));
   const reused = Math.max(0, Math.min(n, Math.floor(spares)));
-  const size = Math.max(1, Math.floor(perTab));
   const out: Placement[] = [];
-  let leader = -1;
+  let tab = 0;
+  let inTab = 0;
   for (let i = 0; i < n; i++) {
     if (i < reused) {
       out.push({ kind: 'reuse' });
       continue;
     }
-    const nth = i - reused; // position among the ones needing a new terminal
-    if (nth % size === 0) {
-      leader = i;
+    if (inTab === 0) {
       out.push({ kind: 'tab' });
     } else {
-      out.push({ kind: 'split', parent: leader });
+      out.push({ kind: 'split', parent: i - 1 });
+    }
+    if (++inTab >= sizeOfTab(perTab, tab)) {
+      tab++;
+      inTab = 0;
     }
   }
   return out;

@@ -325,10 +325,29 @@ test('planPlacements: uses every revived terminal before opening a new one', () 
 // Opening a tab per terminal is what turned a four-pane project into four
 // tabs showing one terminal each. New terminals go side by side instead.
 test('planPlacements: splits the new terminals into one tab', () => {
-  assert.deepStrictEqual(store.planPlacements(3, 0), [TAB, splitOf(0), splitOf(0)]);
+  assert.deepStrictEqual(store.planPlacements(3, 0), [TAB, splitOf(0), splitOf(1)]);
   // A reused terminal is already in a pane, so it is never a parent: splitting
   // off it would rearrange the layout VS Code just rebuilt.
   assert.deepStrictEqual(store.planPlacements(3, 1), [REUSE, TAB, splitOf(1)]);
+});
+
+// VS Code inserts a split immediately after its parent, so hanging every pane
+// off the tab's first terminal builds the row backwards: 1, 2, 3 arrives as
+// 1, 3, 2. Each pane names the one before it instead.
+test('REGRESSION -- planPlacements: panes come out in the order given', () => {
+  const plan = store.planPlacements(4, 0, 4);
+  assert.deepStrictEqual(plan, [TAB, splitOf(0), splitOf(1), splitOf(2)]);
+  // Replay what VS Code does with that plan: splice each pane in after its
+  // parent, and the row must read 0, 1, 2, 3.
+  const row = [];
+  plan.forEach((p, i) => {
+    if (p.kind === 'split') {
+      row.splice(row.indexOf(p.parent) + 1, 0, i);
+    } else {
+      row.push(i);
+    }
+  });
+  assert.deepStrictEqual(row, [0, 1, 2, 3]);
 });
 
 test('planPlacements: starts another tab once a group is full', () => {
@@ -337,11 +356,23 @@ test('planPlacements: starts another tab once a group is full', () => {
   ]);
 });
 
+// The layout cannot be read back, so this is how a project says what it was.
+test('planPlacements: a list gives each tab its own number of panes', () => {
+  assert.deepStrictEqual(store.planPlacements(6, 0, [2, 1, 3]), [
+    TAB, splitOf(0), TAB, TAB, splitOf(3), splitOf(4),
+  ]);
+  // The last entry repeats rather than falling back to one per tab.
+  assert.deepStrictEqual(store.planPlacements(5, 0, [1, 2]), [
+    TAB, TAB, splitOf(1), TAB, splitOf(3),
+  ]);
+});
+
 test('planPlacements: one per tab is still available', () => {
   assert.deepStrictEqual(store.planPlacements(3, 0, 1), [TAB, TAB, TAB]);
   // Nonsense sizes must not produce a terminal with no parent.
-  assert.deepStrictEqual(store.planPlacements(2, 0, 0), [TAB, TAB]);
-  assert.deepStrictEqual(store.planPlacements(2, 0, -5), [TAB, TAB]);
+  for (const bad of [0, -5, NaN, [], [0], ['x']]) {
+    assert.deepStrictEqual(store.planPlacements(2, 0, bad), [TAB, TAB], String(bad));
+  }
 });
 
 test('isWorthRecording: keeps real work, drops navigation and noise', () => {
@@ -380,6 +411,30 @@ test('REGRESSION -- restorable: never offers a conversation that is running', ()
     rec({ key: 'live', session: 'same', closedAt: null }),
   );
   assert.deepStrictEqual(store.restorable(ix), []);
+});
+
+// Closing a window stamps each terminal as its own event, milliseconds apart
+// in whatever order the shells exit. Sorting on that shuffled the panes; the
+// four closures are one event, and inside it the recorded order is the order
+// they were on screen.
+test('REGRESSION -- restorable: one window close keeps its on-screen order', () => {
+  const ix = ixOf(
+    rec({ key: 'left', session: 's1', closedAt: '2026-10-20T15:33:10.604Z' }),
+    rec({ key: 'middle', session: 's2', closedAt: '2026-10-20T15:33:10.652Z' }),
+    rec({ key: 'right', session: 's3', closedAt: '2026-10-20T15:33:10.637Z' }),
+  );
+  assert.deepStrictEqual(store.restorable(ix).map((t) => t.key), ['left', 'middle', 'right']);
+});
+
+// But a terminal closed on its own, an hour before the window went, is a
+// separate event -- and the newest event is still the one to offer first.
+test('restorable: a separate, newer closure comes first', () => {
+  const ix = ixOf(
+    rec({ key: 'early', session: 's1', closedAt: '2026-10-20T14:00:00.000Z' }),
+    rec({ key: 'a', session: 's2', closedAt: '2026-10-20T15:33:10.604Z' }),
+    rec({ key: 'b', session: 's3', closedAt: '2026-10-20T15:33:10.500Z' }),
+  );
+  assert.deepStrictEqual(store.restorable(ix).map((t) => t.key), ['a', 'b', 'early']);
 });
 
 test('restorable: a shell that ran nothing is not worth offering', () => {
