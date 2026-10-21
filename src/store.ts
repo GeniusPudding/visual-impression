@@ -30,11 +30,20 @@ export interface TerminalRecord {
   lastCommandAt: string | null;
 }
 
+/** The arrangement of the panes, as last read off the screen. */
+export interface LayoutRecord {
+  /** Each tab's terminals, by record key, in pane order. */
+  tabs: string[][];
+  at: string;
+}
+
 export interface WorkspaceIndex {
   version: 1;
   folder: string;
   updatedAt: string;
   terminals: TerminalRecord[];
+  /** Absent until a layout has been read; see layout.ts for why it is hard. */
+  layout?: LayoutRecord;
 }
 
 export function stateDir(): string {
@@ -224,46 +233,91 @@ function clampSize(n: number): number {
 }
 
 /**
- * Where each chosen record goes, in order.
+ * Where each chosen record goes, and in what order to open them.
  *
  * Reuse comes first and preserves the real layout: VS Code rebuilds the
- * arrangement from its own layout record, and the extension API can neither
- * read that arrangement nor reproduce it, so the only way to land inside it
- * is to use what is already there.
+ * arrangement from its own layout record when it revives terminals, so a
+ * conversation resumed into one of those lands inside it.
  *
- * When there is nothing to reuse -- a window reopened after the pty host is
- * gone, which is the normal case over SSH -- the layout is lost and the
- * extension has to choose one. Opening a tab per terminal turns four panes
- * into four tabs and one visible terminal, so instead they are split into
- * tabs of `perTab` panes. That is not the old arrangement, but it is the same
- * shape of workspace: several terminals on screen at once.
+ * `tabs` is the arrangement read off the screen while the project was last
+ * open (see layout.ts), by record key. It decides which conversations share
+ * a tab and in what order, which is why the order to open them in is part of
+ * the answer: the remembered arrangement, not the picker, settles that.
+ * Records it says nothing about -- a conversation from an older session, or
+ * one whose terminal was never read -- follow at the end in tabs of
+ * `perTab`, which is also what happens when there is no reading at all.
  *
- * Each split names the one before it, not the tab's first terminal. VS Code
- * inserts a split immediately after its parent, so splitting everything off
+ * Each split names the pane before it, never the tab's first pane. VS Code
+ * inserts a split immediately after its parent, so hanging everything off
  * the first pane builds the tab backwards: 1, 2, 3 comes out as 1, 3, 2.
  */
-export function planPlacements(count: number, spares: number, perTab: TabSizes = 3): Placement[] {
-  const n = Math.max(0, Math.floor(count));
-  const reused = Math.max(0, Math.min(n, Math.floor(spares)));
-  const out: Placement[] = [];
-  let tab = 0;
-  let inTab = 0;
-  for (let i = 0; i < n; i++) {
-    if (i < reused) {
-      out.push({ kind: 'reuse' });
-      continue;
-    }
-    if (inTab === 0) {
-      out.push({ kind: 'tab' });
+export function planByLayout(
+  keys: readonly string[],
+  tabs: readonly (readonly string[])[],
+  spares: number,
+  perTab: TabSizes = 3,
+): { order: number[]; plan: Placement[] } {
+  const slot = new Map<string, number[]>();
+  keys.forEach((k, i) => {
+    const q = slot.get(k);
+    if (q) {
+      q.push(i);
     } else {
-      out.push({ kind: 'split', parent: i - 1 });
+      slot.set(k, [i]);
     }
-    if (++inTab >= sizeOfTab(perTab, tab)) {
-      tab++;
-      inTab = 0;
+  });
+  const take = (k: string): number | undefined => slot.get(k)?.shift();
+
+  const groups: number[][] = [];
+  for (const tab of tabs) {
+    const g: number[] = [];
+    for (const k of tab) {
+      const i = take(k);
+      if (i !== undefined) {
+        g.push(i);
+      }
+    }
+    if (g.length) {
+      groups.push(g);
     }
   }
-  return out;
+
+  const placed = new Set(groups.flat());
+  const rest = keys.map((_, i) => i).filter((i) => !placed.has(i));
+  // Terminals being reused are already in a pane of their own, so they are
+  // set aside before the remainder is cut into tabs -- otherwise a reused
+  // one would take up a slot and leave a tab short.
+  const spare = Math.max(0, Math.min(keys.length, Math.floor(spares)));
+  const left = Math.max(0, spare - placed.size);
+  if (left) {
+    groups.push(rest.slice(0, left));
+  }
+  for (let i = left; i < rest.length; ) {
+    const size = sizeOfTab(perTab, groups.length - (left ? 1 : 0));
+    groups.push(rest.slice(i, i + size));
+    i += size;
+  }
+
+  const order: number[] = [];
+  const plan: Placement[] = [];
+  let reused = 0;
+  for (const g of groups) {
+    let previous = -1; // the last pane in this tab that was actually opened
+    for (const i of g) {
+      order.push(i);
+      if (reused < spare) {
+        plan.push({ kind: 'reuse' });
+        reused++;
+      } else if (previous < 0) {
+        plan.push({ kind: 'tab' });
+        previous = plan.length - 1;
+      } else {
+        plan.push({ kind: 'split', parent: previous });
+        previous = plan.length - 1;
+      }
+    }
+  }
+  return { order, plan };
 }
 
 export function deleteIndex(folder: string): void {

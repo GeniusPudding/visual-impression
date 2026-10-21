@@ -15,11 +15,12 @@ import {
   deleteIndex,
   isWorthRecording,
   readIndex,
-  planPlacements,
   restorable,
+  planByLayout,
   TabSizes,
   writeIndex,
 } from './store';
+import { PaneProbe, probeGroups, sameTerminals } from './layout';
 import { invalidateProcessCache } from './procs';
 import { invalidateRolloutCache, resolveTerminal } from './resolve';
 import { getPreview, oneLine } from './preview';
@@ -42,6 +43,14 @@ export function activate(context: vscode.ExtensionContext): void {
     vscode.commands.registerCommand('visualImpression.restoreTerminals', () => restoreTerminals(folder)),
     vscode.commands.registerCommand('visualImpression.showStatus', () => showStatus(folder)),
     vscode.commands.registerCommand('visualImpression.forgetWorkspace', () => forgetWorkspace(folder)),
+    vscode.commands.registerCommand('visualImpression.rememberLayoutNow', () => rememberLayout(folder, false)),
+    // Reading the arrangement moves focus from pane to pane, so it is done
+    // when the window is not being typed into.
+    vscode.window.onDidChangeWindowState((st) => {
+      if (!st.focused) {
+        void rememberLayout(folder, true);
+      }
+    }),
     vscode.window.onDidOpenTerminal(() => scheduleScan(folder, 2500)),
     vscode.window.onDidCloseTerminal((t) => onClosed(folder, t)),
     vscode.window.onDidChangeActiveTerminal(() => scheduleScan(folder, 1500)),
@@ -384,12 +393,21 @@ async function restoreTerminals(folder: string): Promise<void> {
     return;
   }
   const spare = await spareTerminals(folder);
-  const plan = planPlacements(picked.length, spare.length, cfg<TabSizes>('restoreTerminalsPerTab', 3));
+  // The arrangement read off the screen before this project last closed, if
+  // there is one: it decides which conversations share a tab, and in what
+  // order. Without it they are grouped by the setting instead.
+  const tabs = readIndex(folder).layout?.tabs ?? [];
+  const { order, plan } = planByLayout(
+    picked.map((c) => c.rec.key),
+    tabs,
+    spare.length,
+    cfg<TabSizes>('restoreTerminalsPerTab', 3),
+  );
   const opened: vscode.Terminal[] = [];
-  picked.forEach((choice, i) => {
+  order.forEach((pick, i) => {
     const where = plan[i];
     opened[i] = openFor(
-      choice.rec,
+      picked[pick].rec,
       where.kind === 'reuse' ? spare.shift() : undefined,
       where.kind === 'split' ? opened[where.parent] : undefined,
     );
@@ -507,6 +525,111 @@ async function offerRestoreOnStartup(folder: string): Promise<void> {
   }
 }
 
+// ----------------------------------------------------------------- layout ----
+
+/** The terminal set the last successful reading covered, to not repeat it. */
+let probedKeys: string[] = [];
+let probedAt = 0;
+/** A reading older than this is re-taken: panes can be dragged, silently. */
+const LAYOUT_STALE_MS = 900_000;
+
+/**
+ * Read which terminals share a tab and write it into the index, so that
+ * reopening the project can rebuild the arrangement rather than guess at it.
+ *
+ * `quiet` is the automatic pass, taken when the window loses focus. It is
+ * skipped unless there is an active terminal to put focus back on, because
+ * the walk would otherwise pop the panel open on a window nobody is looking
+ * at.
+ */
+async function rememberLayout(folder: string, quiet: boolean): Promise<void> {
+  const mode = cfg<string>('rememberLayout', 'onBlur');
+  if (mode === 'off' || (quiet && mode !== 'onBlur')) {
+    return;
+  }
+  const before = vscode.window.activeTerminal;
+  if (quiet && !before) {
+    return;
+  }
+  if (vscode.window.terminals.length < 2) {
+    return;
+  }
+
+  const byKey = new Map<string, vscode.Terminal>();
+  for (const t of vscode.window.terminals) {
+    const pid = await pidOf(t);
+    if (pid !== null) {
+      byKey.set(liveKeys.get(t) ?? keyFor(t, pid), t);
+    }
+  }
+  const ids = [...byKey.keys()];
+  if (ids.length < 2) {
+    return;
+  }
+  if (quiet && sameTerminals(ids, probedKeys) && Date.now() - probedAt < LAYOUT_STALE_MS) {
+    return;
+  }
+
+  const keyOf = (t: vscode.Terminal | undefined): string | undefined => {
+    for (const [k, v] of byKey) {
+      if (v === t) {
+        return k;
+      }
+    }
+    return undefined;
+  };
+  const probe: PaneProbe = {
+    ids,
+    activate: async (id) => {
+      byKey.get(id)?.show(false);
+      await settled();
+    },
+    next: async () => {
+      await vscode.commands.executeCommand('workbench.action.terminal.focusNextPane');
+      await settled();
+    },
+    active: () => keyOf(vscode.window.activeTerminal),
+  };
+
+  let tabs: string[][];
+  try {
+    tabs = await probeGroups(probe);
+  } finally {
+    before?.show(false); // put focus back where the walk found it
+  }
+
+  const ix = readIndex(folder);
+  ix.layout = { tabs, at: new Date().toISOString() };
+  writeIndex(ix);
+  probedKeys = ids;
+  probedAt = Date.now();
+
+  if (!quiet) {
+    const shape = tabs.map((t) => t.length).join(' + ');
+    void vscode.window.showInformationMessage(
+      `Visual Impression: remembered ${tabs.length} tab${tabs.length === 1 ? '' : 's'} (${shape} pane${ids.length === 1 ? '' : 's'}).`,
+    );
+  }
+}
+
+/**
+ * Focus moves through an event, not through the command's promise, so each
+ * step waits for the active terminal to actually change.
+ */
+function settled(ms = 120): Promise<void> {
+  return new Promise((resolve) => {
+    const done = vscode.window.onDidChangeActiveTerminal(() => {
+      done.dispose();
+      clearTimeout(timeout);
+      resolve();
+    });
+    const timeout = setTimeout(() => {
+      done.dispose();
+      resolve();
+    }, ms);
+  });
+}
+
 // ---------------------------------------------------------------- status ----
 
 async function showStatus(folder: string): Promise<void> {
@@ -523,6 +646,14 @@ async function showStatus(folder: string): Promise<void> {
   lines.push(...(live.length ? live.map((t) => row(t)) : ['(none)']));
   lines.push('', '## Recoverable', '');
   lines.push(...(gone.length ? gone.map((t) => row(t)) : ['(none)']));
+  if (ix.layout?.tabs.length) {
+    lines.push(
+      '',
+      '## Arrangement',
+      '',
+      `${ix.layout.tabs.length} tab(s), ${ix.layout.tabs.map((t) => t.length).join(' + ')} pane(s), read ${ago(ix.layout.at)}`,
+    );
+  }
   lines.push('', '---', '', `Index: ${indexPath(folder)}`);
 
   const doc = await vscode.workspace.openTextDocument({

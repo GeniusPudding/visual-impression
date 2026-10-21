@@ -43,6 +43,11 @@
         "title": "Visual Impression: Show tracked terminals"
       },
       {
+        "command": "visualImpression.rememberLayoutNow",
+        "title": "Visual Impression: Remember the terminal layout",
+        "shortTitle": "Remember terminal layout"
+      },
+      {
         "command": "visualImpression.forgetWorkspace",
         "title": "Visual Impression: Forget this workspace's history"
       }
@@ -65,6 +70,21 @@
           "type": "number",
           "default": 14,
           "description": "Forget terminals that closed more than this many days ago."
+        },
+        "visualImpression.rememberLayout": {
+          "type": "string",
+          "default": "onBlur",
+          "enum": [
+            "onBlur",
+            "manual",
+            "off"
+          ],
+          "enumDescriptions": [
+            "Read the arrangement whenever the window loses focus, so the last reading before it closes is current.",
+            "Only when 'Visual Impression: Remember the terminal layout' is run.",
+            "Never read it; restores are grouped by the setting below instead."
+          ],
+          "markdownDescription": "Whether to read which terminals share a tab, so a restore can rebuild the arrangement. VS Code does not report this, and the only way to read it is to step focus through the panes -- a few hundred milliseconds during which focus moves, which is why the automatic reading waits until the window is not in use. Focus is put back where it was found."
         },
         "visualImpression.restoreTerminalsPerTab": {
           "type": [

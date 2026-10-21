@@ -65,6 +65,7 @@ pid directly, and it already knows the workspace.
 |---|---|
 | `Visual Impression: Restore terminals` | pick from the agent terminals recorded in this project and bring them back, conversation and all |
 | `Visual Impression: Show tracked terminals` | a read-only markdown view of what is open and what can be recovered |
+| `Visual Impression: Remember the terminal layout` | read which terminals share a tab now, so a restore can rebuild it |
 | `Visual Impression: Forget this workspace's history` | delete this project's index |
 
 When you open a project that has recorded terminals, a notification offers to
@@ -83,6 +84,7 @@ there is nothing to bring back. Missing the notification costs nothing.
 | `visualImpression.promptOnStartup` | `true` | offer to restore when a project with history is opened |
 | `visualImpression.scanIntervalSeconds` | `45` | how often to re-check which agent each terminal is running |
 | `visualImpression.historyDays` | `14` | forget terminals closed longer ago than this |
+| `visualImpression.rememberLayout` | `onBlur` | when to read which terminals share a tab: `onBlur`, `manual`, `off` |
 | `visualImpression.restoreTerminalsPerTab` | `3` | how many new terminals to place side by side as splits in one tab; `1` = a tab each; a list such as `[2, 1, 3]` gives each tab its own count |
 | `visualImpression.reuseRevivedTerminals` | `true` | resume into a terminal VS Code revived rather than opening another |
 
@@ -134,6 +136,29 @@ text off the screen without markers from the shell integration script, which
 means it may not be a command at all. A shell with no shell integration
 records nothing, which is the honest outcome.
 
+## Reading the arrangement
+
+`window.terminals` is flat, so the only way to find out which terminals share
+a tab is to walk it: focus a terminal, press `focusNextPane` until focus comes
+back round, and that cycle is one tab. The extension does exactly that, and
+then puts focus back where it found it. It takes a few hundred milliseconds
+and focus visibly moves while it runs, so it is done when the window loses
+focus -- you are in another application, and the reading is fresh for
+whenever the window is closed.
+
+- `visualImpression.rememberLayout`: `onBlur` (default), `manual`, `off`.
+- **Visual Impression: Remember the terminal layout** runs it on demand and
+  reports what it saw (`remembered 3 tabs (2 + 1 + 3 panes)`).
+- **Visual Impression: Show tracked terminals** prints the current reading.
+- It is skipped when there are fewer than two terminals, when no terminal is
+  active to hand focus back to, and when nothing has changed since the last
+  reading.
+
+Which terminals share a tab comes out exact. The order *within* a tab does
+not: the walk enters each tab at its earliest-created pane and wraps, so a
+tab reads left to right only if its panes were split in the order they were
+created. Pane widths cannot be read or set by an extension at all.
+
 ## Known limits
 
 - **macOS and Linux are written but not yet verified.** The process walk is
@@ -168,10 +193,15 @@ records nothing, which is the honest outcome.
   giving each a tab of its own, so the project comes back with several
   terminals on screen instead of one visible and the rest hidden behind tabs.
   Creating a terminal beside a given parent is the one piece of layout the
-  API does allow. Since the old grouping cannot be recovered, that setting is
-  also where a project can state it: `[2, 1, 3]` means two panes in the first
-  tab, one in the second, three in the third, and the last entry repeats.
-  Pane order follows the picker, left to right. To rearrange afterwards: **Terminal: Join Terminals...**
+  API does allow.
+
+  What the extension *can* do is read the arrangement before the window goes,
+  and that is what `visualImpression.rememberLayout` does -- see below. When a
+  reading exists it decides which conversations share a tab and in what
+  order, and `restoreTerminalsPerTab` only covers what the reading does not
+  mention. A project can also just state its shape there: `[2, 1, 3]` means
+  two panes in the first tab, one in the second, three in the third, with the
+  last entry repeating. To rearrange afterwards: **Terminal: Join Terminals...**
   from the command palette merges another terminal into the active tab, and
   multi-selecting tabs in the terminal list offers **Join Terminals** on the
   right-click menu. Relative pane sizes cannot be set by an extension at all.

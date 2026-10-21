@@ -17,6 +17,7 @@ const { descendants, parsePs } = require(path.join(OUT, 'procs.js'));
 const { pickCodexRollout, listRollouts, invalidateRolloutCache, normalisePath } = require(path.join(OUT, 'resolve.js'));
 const { findCodexLog, getPreview, oneLine } = require(path.join(OUT, 'preview.js'));
 const store = require(path.join(OUT, 'store.js'));
+const { probeGroups } = require(path.join(OUT, 'layout.js'));
 
 // ---------------------------------------------------------------- fixtures --
 
@@ -316,26 +317,37 @@ const REUSE = { kind: 'reuse' };
 const TAB = { kind: 'tab' };
 const splitOf = (parent) => ({ kind: 'split', parent });
 
-test('planPlacements: uses every revived terminal before opening a new one', () => {
-  assert.deepStrictEqual(store.planPlacements(3, 3), [REUSE, REUSE, REUSE]);
-  assert.deepStrictEqual(store.planPlacements(2, 5), [REUSE, REUSE]);
-  assert.deepStrictEqual(store.planPlacements(0, 3), []);
+/** planByLayout over n terminals with nothing remembered about them. */
+const plain = (n, spares, perTab) =>
+  store.planByLayout(
+    Array.from({ length: n }, (_, i) => 'k' + i),
+    [],
+    spares,
+    perTab,
+  );
+
+test('planByLayout: uses every revived terminal before opening a new one', () => {
+  assert.deepStrictEqual(plain(3, 3).plan, [REUSE, REUSE, REUSE]);
+  assert.deepStrictEqual(plain(2, 5).plan, [REUSE, REUSE]);
+  assert.deepStrictEqual(plain(0, 3).plan, []);
 });
 
 // Opening a tab per terminal is what turned a four-pane project into four
 // tabs showing one terminal each. New terminals go side by side instead.
-test('planPlacements: splits the new terminals into one tab', () => {
-  assert.deepStrictEqual(store.planPlacements(3, 0), [TAB, splitOf(0), splitOf(1)]);
+test('planByLayout: splits the new terminals into one tab', () => {
+  assert.deepStrictEqual(plain(3, 0).plan, [TAB, splitOf(0), splitOf(1)]);
   // A reused terminal is already in a pane, so it is never a parent: splitting
   // off it would rearrange the layout VS Code just rebuilt.
-  assert.deepStrictEqual(store.planPlacements(3, 1), [REUSE, TAB, splitOf(1)]);
+  assert.deepStrictEqual(plain(3, 1).plan, [REUSE, TAB, splitOf(1)]);
+  // ...and it does not eat a slot in the tab the others are cut into.
+  assert.deepStrictEqual(plain(5, 1, 2).plan, [REUSE, TAB, splitOf(1), TAB, splitOf(3)]);
 });
 
 // VS Code inserts a split immediately after its parent, so hanging every pane
 // off the tab's first terminal builds the row backwards: 1, 2, 3 arrives as
 // 1, 3, 2. Each pane names the one before it instead.
-test('REGRESSION -- planPlacements: panes come out in the order given', () => {
-  const plan = store.planPlacements(4, 0, 4);
+test('REGRESSION -- planByLayout: panes come out in the order given', () => {
+  const { plan } = plain(4, 0, 4);
   assert.deepStrictEqual(plan, [TAB, splitOf(0), splitOf(1), splitOf(2)]);
   // Replay what VS Code does with that plan: splice each pane in after its
   // parent, and the row must read 0, 1, 2, 3.
@@ -350,29 +362,106 @@ test('REGRESSION -- planPlacements: panes come out in the order given', () => {
   assert.deepStrictEqual(row, [0, 1, 2, 3]);
 });
 
-test('planPlacements: starts another tab once a group is full', () => {
-  assert.deepStrictEqual(store.planPlacements(5, 0, 2), [
-    TAB, splitOf(0), TAB, splitOf(2), TAB,
-  ]);
+test('planByLayout: starts another tab once a group is full', () => {
+  assert.deepStrictEqual(plain(5, 0, 2).plan, [TAB, splitOf(0), TAB, splitOf(2), TAB]);
 });
 
-// The layout cannot be read back, so this is how a project says what it was.
-test('planPlacements: a list gives each tab its own number of panes', () => {
-  assert.deepStrictEqual(store.planPlacements(6, 0, [2, 1, 3]), [
+test('planByLayout: a list gives each tab its own number of panes', () => {
+  assert.deepStrictEqual(plain(6, 0, [2, 1, 3]).plan, [
     TAB, splitOf(0), TAB, TAB, splitOf(3), splitOf(4),
   ]);
   // The last entry repeats rather than falling back to one per tab.
-  assert.deepStrictEqual(store.planPlacements(5, 0, [1, 2]), [
-    TAB, TAB, splitOf(1), TAB, splitOf(3),
-  ]);
+  assert.deepStrictEqual(plain(5, 0, [1, 2]).plan, [TAB, TAB, splitOf(1), TAB, splitOf(3)]);
 });
 
-test('planPlacements: one per tab is still available', () => {
-  assert.deepStrictEqual(store.planPlacements(3, 0, 1), [TAB, TAB, TAB]);
+test('planByLayout: one per tab is still available', () => {
+  assert.deepStrictEqual(plain(3, 0, 1).plan, [TAB, TAB, TAB]);
   // Nonsense sizes must not produce a terminal with no parent.
   for (const bad of [0, -5, NaN, [], [0], ['x']]) {
-    assert.deepStrictEqual(store.planPlacements(2, 0, bad), [TAB, TAB], String(bad));
+    assert.deepStrictEqual(plain(2, 0, bad).plan, [TAB, TAB], String(bad));
   }
+});
+
+// The point of reading the arrangement: the picker lists conversations
+// newest-closed first, the screen had them two in one tab and one beside.
+test('planByLayout: a remembered arrangement decides the tabs and the order', () => {
+  const { order, plan } = store.planByLayout(
+    ['c', 'a', 'b'],
+    [['a', 'b'], ['c']],
+    0,
+  );
+  assert.deepStrictEqual(order, [1, 2, 0]);
+  assert.deepStrictEqual(plan, [TAB, splitOf(0), TAB]);
+});
+
+test('planByLayout: what the arrangement does not mention follows at the end', () => {
+  const { order, plan } = store.planByLayout(
+    ['old1', 'a', 'b', 'old2'],
+    [['a'], ['b']],
+    0,
+    2,
+  );
+  assert.deepStrictEqual(order, [1, 2, 0, 3]);
+  assert.deepStrictEqual(plan, [TAB, TAB, TAB, splitOf(2)]);
+});
+
+test('planByLayout: a remembered terminal that is not being restored is skipped', () => {
+  const { order, plan } = store.planByLayout(['a', 'c'], [['a', 'b', 'c']], 0);
+  assert.deepStrictEqual(order, [0, 1]);
+  assert.deepStrictEqual(plan, [TAB, splitOf(0)]);
+});
+
+// --------------------------------------------------------- layout probe ----
+
+/** A window whose panes are arranged like `groups`, driven by the probe. */
+function fakeWindow(groups, opts = {}) {
+  const ids = groups.flat();
+  const order = opts.listed ?? ids;
+  let active;
+  return {
+    ids: order,
+    steps: 0,
+    async activate(id) {
+      active = opts.deaf ? undefined : id;
+    },
+    async next() {
+      this.steps++;
+      const g = groups.find((x) => x.includes(active));
+      if (!g) {
+        return;
+      }
+      active = g[(g.indexOf(active) + 1) % g.length];
+    },
+    active: () => active,
+  };
+}
+
+test('probeGroups: reads which terminals share a tab', async () => {
+  const groups = [['a', 'b'], ['c'], ['d', 'e', 'f']];
+  assert.deepStrictEqual(await probeGroups(fakeWindow(groups)), groups);
+});
+
+// focusNextPane wraps, so a tab is read as a cycle starting from whichever
+// of its panes was created first. Membership is exact; the order is only the
+// true one when the panes were split in the order they were created.
+test('probeGroups: a tab reads as a cycle from its earliest pane', async () => {
+  const win = fakeWindow([['a', 'b', 'c']], { listed: ['b', 'c', 'a'] });
+  assert.deepStrictEqual(await probeGroups(win), [['b', 'c', 'a']]);
+});
+
+test('probeGroups: every terminal is accounted for exactly once', async () => {
+  const groups = [['a', 'b', 'c'], ['d'], ['e', 'f']];
+  const seen = (await probeGroups(fakeWindow(groups))).flat();
+  assert.deepStrictEqual(seen.slice().sort(), ['a', 'b', 'c', 'd', 'e', 'f']);
+  assert.strictEqual(new Set(seen).size, seen.length);
+});
+
+// If focus cannot be driven -- the window lost it mid-walk -- the reading
+// must still terminate, and say the least wrong thing: one pane per tab.
+test('probeGroups: a window that will not take focus still returns', async () => {
+  const win = fakeWindow([['a', 'b'], ['c']], { deaf: true });
+  assert.deepStrictEqual(await probeGroups(win), [['a'], ['b'], ['c']]);
+  assert.strictEqual(win.steps, 0);
 });
 
 test('isWorthRecording: keeps real work, drops navigation and noise', () => {
