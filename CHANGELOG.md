@@ -8,12 +8,19 @@ follows [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
-- Read the arrangement of the terminal panes before the window closes, and
-  rebuild it on restore. VS Code does not report which terminals share a tab,
-  so the extension walks the panes with `focusNextPane` and watches where
-  focus lands. It runs when the window loses focus, and puts focus back.
-  Settings: `visualImpression.rememberLayout`, and the command
-  **Visual Impression: Remember the terminal layout**.
+- Read the arrangement of the terminal panes, and rebuild it on restore. VS
+  Code does not report which terminals share a tab, so the extension walks
+  the panes with `focusNextPane` and watches where focus lands. The walk
+  moves focus, and the API cannot say where focus was beforehand, so it runs
+  on request: the command **Visual Impression: Remember the terminal
+  layout**. `visualImpression.rememberLayout: onBlur` also reads by itself
+  after the window has been out of focus for
+  `visualImpression.rememberLayoutAfterSeconds`, stops the moment the window
+  is in use again, and leaves focus in the terminal that was active. (An
+  unreleased build read on every blur and always put focus in a terminal,
+  which took keystrokes meant for an editor or a chat panel; that is gone.)
+- A restore writes down the arrangement it built, so a project restored once
+  keeps its layout across the next reopen without a walk.
 - `visualImpression.restoreTerminalsPerTab` decides how restored terminals
   are grouped when there is no reading to go on. A list such as `[2, 1, 3]`
   states a shape per tab.

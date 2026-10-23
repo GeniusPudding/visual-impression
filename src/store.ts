@@ -362,6 +362,56 @@ export function planByLayout(
   return { order, plan };
 }
 
+/**
+ * The arrangement a restore built itself, read off its own plan rather than
+ * off the screen: the terminals opened as splits of one another share a tab.
+ * `keys[i]` is the record key of the terminal opened for `plan[i]`, or
+ * undefined if it never reported a pid. Reused terminals are left out --
+ * their tab is one VS Code revived, and cannot be seen.
+ *
+ * This is what keeps a restored project's arrangement across the next close
+ * and reopen without a walk, as long as nobody rearranged it by hand.
+ */
+export function layoutOfPlan(
+  keys: readonly (string | undefined)[],
+  plan: readonly Placement[],
+): string[][] {
+  const tabs: string[][] = [];
+  const tabOf: number[] = []; // plan index -> index into tabs
+  plan.forEach((where, i) => {
+    if (where.kind === 'reuse') {
+      return;
+    }
+    let tab = where.kind === 'split' ? tabOf[where.parent] : undefined;
+    if (tab === undefined) {
+      tab = tabs.push([]) - 1;
+    }
+    tabOf[i] = tab;
+    const key = keys[i];
+    if (key) {
+      tabs[tab].push(key);
+    }
+  });
+  return tabs.filter((t) => t.length);
+}
+
+/**
+ * A fresh partial reading on top of an older one. The fresh tabs come first;
+ * the old ones follow, trimmed to the terminals the index still knows, since
+ * a tab that mentions nothing restorable is dead weight.
+ */
+export function mergeLayout(
+  fresh: readonly (readonly string[])[],
+  old: readonly (readonly string[])[],
+  known: ReadonlySet<string>,
+): string[][] {
+  const mentioned = new Set(fresh.flat());
+  const kept = old
+    .map((tab) => tab.filter((k) => known.has(k) && !mentioned.has(k)))
+    .filter((tab) => tab.length);
+  return [...fresh.map((t) => [...t]), ...kept];
+}
+
 export function deleteIndex(folder: string): void {
   try {
     fs.unlinkSync(indexPath(folder));

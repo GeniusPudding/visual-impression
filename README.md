@@ -88,7 +88,8 @@ there is nothing to bring back. Missing the notification costs nothing.
 | `visualImpression.historyDays` | `14` | forget terminals closed longer ago than this |
 | `visualImpression.showPreviews` | `true` | show a line of each conversation, read from the agent's transcript; off for a shared screen |
 | `visualImpression.stateDirectory` | `~/.visual-impression` | where the per-project index is kept |
-| `visualImpression.rememberLayout` | `onBlur` | when to read which terminals share a tab: `onBlur`, `manual`, `off` |
+| `visualImpression.rememberLayout` | `manual` | when to read which terminals share a tab: `manual` (on command only), `onBlur` (also by itself; focus ends in a terminal), `off` |
+| `visualImpression.rememberLayoutAfterSeconds` | `20` | in `onBlur` mode, how long the window must have been out of focus before a reading starts |
 | `visualImpression.restoreTerminalsPerTab` | `3` | how many new terminals to place side by side as splits in one tab; `1` = a tab each; a list such as `[2, 1, 3]` gives each tab its own count |
 | `visualImpression.reuseRevivedTerminals` | `true` | resume into a terminal VS Code revived rather than opening another |
 
@@ -146,19 +147,33 @@ records nothing, which is the honest outcome.
 
 `window.terminals` is flat, so the only way to find out which terminals share
 a tab is to walk it: focus a terminal, press `focusNextPane` until focus comes
-back round, and that cycle is one tab. The extension does exactly that, and
-then puts focus back where it found it. It takes a few hundred milliseconds
-and focus visibly moves while it runs, so it is done when the window loses
-focus -- you are in another application, and the reading is fresh for
-whenever the window is closed.
+back round, and that cycle is one tab. It takes a few hundred milliseconds,
+and focus visibly moves while it runs.
 
-- `visualImpression.rememberLayout`: `onBlur` (default), `manual`, `off`.
-- **Visual Impression: Remember the terminal layout** runs it on demand and
-  reports what it saw (`remembered 3 tabs (2 + 1 + 3 panes)`).
+That is the catch. The API cannot say where focus was *before* the walk --
+in a terminal, in an editor, in a chat panel -- so there is no way to put it
+back there. After a walk, focus is in a terminal, whatever it was in before.
+A walk that ran by itself while you were in another application would leave
+your next keystrokes in a shell. So, by default, **the arrangement is read
+only when you ask**:
+
+- **Visual Impression: Remember the terminal layout** walks the panes now and
+  reports what it saw (`remembered 3 tabs (2 + 1 + 3 panes)`). Run it before
+  closing a project whose arrangement you want back. Focus ends up in the
+  terminal that was active.
+- A restore writes down the arrangement it builds, since it knows that
+  without looking. A project restored once keeps its layout across the next
+  reopen with no walk at all, unless you rearranged it by hand.
 - **Visual Impression: Show tracked terminals** prints the current reading.
-- It is skipped when there are fewer than two terminals, when no terminal is
-  active to hand focus back to, and when nothing has changed since the last
-  reading.
+- `visualImpression.rememberLayout`: `manual` (default), `onBlur`, `off`.
+
+`onBlur` is for people who type in the terminal, because that is where focus
+lands afterwards. It reads by itself once the window has been out of focus
+for `visualImpression.rememberLayoutAfterSeconds` (20) -- a glance at another
+window does not count -- and stops at the next step if the window is used
+again, discarding the half-reading. It is also skipped when there are fewer
+than two terminals, when no terminal is active to hand focus to, and when
+the same terminals were read less than fifteen minutes ago.
 
 Which terminals share a tab comes out exact. The order *within* a tab does
 not: the walk enters each tab at its earliest-created pane and wraps, so a

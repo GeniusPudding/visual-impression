@@ -105,18 +105,24 @@
         },
         "visualImpression.rememberLayout": {
           "type": "string",
-          "default": "onBlur",
+          "default": "manual",
           "enum": [
-            "onBlur",
             "manual",
+            "onBlur",
             "off"
           ],
           "enumDescriptions": [
-            "Read the arrangement whenever the window loses focus, so the last reading before it closes is current.",
-            "Only when 'Visual Impression: Remember the terminal layout' is run.",
+            "Only when 'Visual Impression: Remember the terminal layout' is run. Focus never moves on its own.",
+            "Also read it by itself after the window has been out of focus for a while. Focus ends up in the terminal that was active.",
             "Never read it; restores are grouped by the setting below instead."
           ],
-          "markdownDescription": "Whether to read which terminals share a tab, so a restore can rebuild the arrangement. VS Code does not report this, and the only way to read it is to step focus through the panes -- a few hundred milliseconds during which focus moves, which is why the automatic reading waits until the window is not in use. Focus is put back where it was found."
+          "markdownDescription": "Whether to read which terminals share a tab, so a restore can rebuild the arrangement. VS Code does not report this; the only way to read it is to step focus through the panes, and the API cannot say where focus was beforehand, so after a reading focus is in a terminal. `manual` reads only when the command is run. `onBlur` also reads by itself once the window has been out of focus for `#visualImpression.rememberLayoutAfterSeconds#`, stops the moment the window is used again, and hands focus to the terminal that was active -- choose it only if that is where you type."
+        },
+        "visualImpression.rememberLayoutAfterSeconds": {
+          "type": "number",
+          "default": 20,
+          "minimum": 2,
+          "markdownDescription": "In `onBlur` mode, how long the window must have been out of focus before the arrangement is read. A glance at another window should not start a walk that your return then interrupts."
         },
         "visualImpression.restoreTerminalsPerTab": {
           "type": [

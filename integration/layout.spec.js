@@ -163,6 +163,38 @@ describe('Visual Impression, in a real VS Code', function () {
     );
   });
 
+  // The walk moves focus, and VS Code cannot say where focus was before it,
+  // so by default it runs only when asked. Pinned against the real
+  // contribution, not the TypeScript constant.
+  it('reads the arrangement only on request unless told otherwise', () => {
+    const cfg = vscode.workspace.getConfiguration('visualImpression');
+    assert.strictEqual(cfg.get('rememberLayout'), 'manual');
+    assert.strictEqual(cfg.get('rememberLayoutAfterSeconds'), 20);
+  });
+
+  it('stops moving focus the moment the walk is interrupted', async () => {
+    const panes = openTab('vi-x', 'vi-y', 'vi-z');
+    await attached(panes);
+    await sleep(800);
+
+    const d = driver(panes);
+    let steps = 0;
+    const next = d.next;
+    d.next = async () => {
+      steps++;
+      await next();
+    };
+    d.interrupted = () => steps >= 1; // the window came back after the first move
+
+    assert.strictEqual(await probeGroups(d), null, 'a reading cut short is not reported');
+    assert.strictEqual(steps, 1, 'no step after the interruption');
+    assert.strictEqual(
+      vscode.window.activeTerminal && vscode.window.activeTerminal.name,
+      'vi-y',
+      'focus is where the one move left it, and went no further',
+    );
+  });
+
   it('registers the extension and its commands', async () => {
     assert.ok(
       vscode.extensions.getExtension('geniuspudding.visual-impression'),

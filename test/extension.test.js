@@ -17,7 +17,7 @@ const { descendants, parsePs } = require(path.join(OUT, 'procs.js'));
 const { pickCodexRollout, listRollouts, invalidateRolloutCache, normalisePath } = require(path.join(OUT, 'resolve.js'));
 const { findCodexLog, getPreview, oneLine } = require(path.join(OUT, 'preview.js'));
 const store = require(path.join(OUT, 'store.js'));
-const { probeGroups } = require(path.join(OUT, 'layout.js'));
+const { probeGroups, autoReadVerdict, LAYOUT_STALE_MS } = require(path.join(OUT, 'layout.js'));
 
 // ---------------------------------------------------------------- fixtures --
 
@@ -511,6 +511,105 @@ test('probeGroups: a window that will not take focus still returns', async () =>
   const win = fakeWindow([['a', 'b'], ['c']], { deaf: true });
   assert.deepStrictEqual(await probeGroups(win), [['a'], ['b'], ['c']]);
   assert.strictEqual(win.steps, 0);
+});
+
+// The automatic pass must give way the moment the window is in use again:
+// no further focus move, and no half-reading written down as if it were one.
+test('REGRESSION -- probeGroups: interrupted before it starts, it moves nothing', async () => {
+  const win = fakeWindow([['a', 'b'], ['c']]);
+  win.interrupted = () => true;
+  assert.strictEqual(await probeGroups(win), null);
+  assert.strictEqual(win.steps, 0);
+});
+
+test('REGRESSION -- probeGroups: interrupted mid-walk, it stops at the next step', async () => {
+  const win = fakeWindow([['a', 'b', 'c'], ['d']]);
+  win.interrupted = () => win.steps >= 1;
+  assert.strictEqual(await probeGroups(win), null, 'a partial reading is no reading');
+  assert.strictEqual(win.steps, 1, 'one step was already under way; none after');
+});
+
+test('probeGroups: a probe without an interrupted() still reads as before', async () => {
+  const groups = [['a', 'b'], ['c']];
+  const win = fakeWindow(groups);
+  delete win.interrupted;
+  assert.deepStrictEqual(await probeGroups(win), groups);
+});
+
+// ---------------------------------------------------- automatic reading ----
+
+/** The automatic pass at a moment where everything says "read". */
+function readable(over = {}) {
+  return {
+    mode: 'onBlur',
+    focused: false,
+    unfocusedForMs: 30_000,
+    graceMs: 20_000,
+    terminals: 3,
+    hasActiveTerminal: true,
+    unchanged: false,
+    lastReadAgeMs: 0,
+    ...over,
+  };
+}
+
+test('autoReadVerdict: only onBlur ever reads by itself', () => {
+  assert.strictEqual(autoReadVerdict(readable()), 'read');
+  assert.strictEqual(autoReadVerdict(readable({ mode: 'manual' })), 'manual');
+  assert.strictEqual(autoReadVerdict(readable({ mode: 'off' })), 'off');
+  assert.strictEqual(autoReadVerdict(readable({ mode: 'something-new' })), 'manual', 'an unknown mode does not move focus');
+});
+
+test('REGRESSION -- autoReadVerdict: a window in use is never walked', () => {
+  assert.strictEqual(autoReadVerdict(readable({ focused: true })), 'focused');
+});
+
+test('autoReadVerdict: a glance at another window is not a departure', () => {
+  assert.strictEqual(autoReadVerdict(readable({ unfocusedForMs: 1_000 })), 'too-soon');
+  assert.strictEqual(autoReadVerdict(readable({ unfocusedForMs: 20_000 })), 'read', 'the grace period, exactly, is enough');
+});
+
+test('autoReadVerdict: nothing to read, or nothing to hand focus back to', () => {
+  assert.strictEqual(autoReadVerdict(readable({ terminals: 1 })), 'too-few');
+  assert.strictEqual(autoReadVerdict(readable({ hasActiveTerminal: false })), 'no-active-terminal');
+});
+
+test('autoReadVerdict: the same terminals are not re-read until the reading is stale', () => {
+  assert.strictEqual(autoReadVerdict(readable({ unchanged: true, lastReadAgeMs: 60_000 })), 'fresh');
+  assert.strictEqual(autoReadVerdict(readable({ unchanged: true, lastReadAgeMs: LAYOUT_STALE_MS })), 'read');
+  assert.strictEqual(autoReadVerdict(readable({ unchanged: false, lastReadAgeMs: 0 })), 'read', 'a new terminal is worth a fresh reading');
+});
+
+// ------------------------------------------------- layout without a walk ----
+// TAB, REUSE and splitOf are the placements declared for planByLayout above.
+
+test('layoutOfPlan: the splits a restore opened share a tab, by their new keys', () => {
+  const plan = [TAB, splitOf(0), splitOf(1), TAB, splitOf(3)];
+  assert.deepStrictEqual(store.layoutOfPlan(['a', 'b', 'c', 'd', 'e'], plan), [
+    ['a', 'b', 'c'],
+    ['d', 'e'],
+  ]);
+});
+
+test('layoutOfPlan: reused terminals are in a tab VS Code owns, so they are left out', () => {
+  const plan = [REUSE, REUSE, TAB, splitOf(2)];
+  assert.deepStrictEqual(store.layoutOfPlan(['r1', 'r2', 'a', 'b'], plan), [['a', 'b']]);
+});
+
+test('layoutOfPlan: a terminal that never reported a pid is skipped, its splits still grouped', () => {
+  const plan = [TAB, splitOf(0), splitOf(1)];
+  assert.deepStrictEqual(store.layoutOfPlan([undefined, 'b', 'c'], plan), [['b', 'c']]);
+  assert.deepStrictEqual(store.layoutOfPlan([undefined, undefined], [TAB, splitOf(0)]), [], 'nothing known, nothing written');
+});
+
+test('mergeLayout: the fresh tabs come first and the old ones are trimmed to live records', () => {
+  const known = new Set(['a', 'b', 'old1', 'old3']);
+  const merged = store.mergeLayout([['a', 'b']], [['old1', 'old2'], ['gone'], ['old3', 'a']], known);
+  assert.deepStrictEqual(merged, [['a', 'b'], ['old1'], ['old3']]);
+});
+
+test('mergeLayout: with nothing old it is just the fresh reading', () => {
+  assert.deepStrictEqual(store.mergeLayout([['a'], ['b', 'c']], [], new Set()), [['a'], ['b', 'c']]);
 });
 
 test('isWorthRecording: keeps real work, drops navigation and noise', () => {

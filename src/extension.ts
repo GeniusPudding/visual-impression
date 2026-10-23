@@ -18,11 +18,14 @@ import {
   readIndex,
   restorable,
   setStateDir,
+  layoutOfPlan,
+  mergeLayout,
   planByLayout,
+  Placement,
   TabSizes,
   writeIndex,
 } from './store';
-import { PaneProbe, probeGroups, sameTerminals } from './layout';
+import { PaneProbe, autoReadVerdict, probeGroups, sameTerminals } from './layout';
 import { invalidateProcessCache } from './procs';
 import { invalidateRolloutCache, resolveTerminal } from './resolve';
 import { getPreview, oneLine } from './preview';
@@ -56,13 +59,11 @@ export function activate(context: vscode.ExtensionContext): void {
     vscode.commands.registerCommand('visualImpression.showStatus', () => showStatus(folder)),
     vscode.commands.registerCommand('visualImpression.forgetWorkspace', () => forgetWorkspace(folder)),
     vscode.commands.registerCommand('visualImpression.rememberLayoutNow', () => rememberLayout(folder, false)),
-    // Reading the arrangement moves focus from pane to pane, so it is done
-    // when the window is not being typed into.
-    vscode.window.onDidChangeWindowState((st) => {
-      if (!st.focused) {
-        void rememberLayout(folder, true);
-      }
-    }),
+    // Reading the arrangement moves focus from pane to pane, so the automatic
+    // pass (opt-in) waits until the window has been left alone for a while,
+    // and is called off the moment focus comes back.
+    vscode.window.onDidChangeWindowState((st) => onWindowState(folder, st.focused)),
+    { dispose: () => onWindowState(folder, true) },
     vscode.window.onDidOpenTerminal(() => scheduleScan(folder, 2500)),
     vscode.window.onDidCloseTerminal((t) => onClosed(folder, t)),
     vscode.window.onDidChangeActiveTerminal(() => scheduleScan(folder, 1500)),
@@ -433,7 +434,29 @@ async function restoreTerminals(folder: string): Promise<void> {
       where.kind === 'split' ? opened[where.parent] : undefined,
     );
   });
+  void recordBuiltLayout(folder, opened, plan);
   scheduleScan(folder, 4000);
+}
+
+/**
+ * The arrangement just built is known without looking at the screen, so it
+ * is written down as the reading -- the one way a project keeps its layout
+ * across the next reopen without anyone walking the panes.
+ */
+async function recordBuiltLayout(folder: string, opened: vscode.Terminal[], plan: Placement[]): Promise<void> {
+  const keys: (string | undefined)[] = [];
+  for (let i = 0; i < opened.length; i++) {
+    const pid = await pidOf(opened[i]);
+    keys[i] = pid === null ? undefined : (liveKeys.get(opened[i]) ?? keyFor(opened[i], pid));
+  }
+  const built = layoutOfPlan(keys, plan);
+  if (!built.length) {
+    return;
+  }
+  const ix = readIndex(folder);
+  const known = new Set(ix.terminals.map((t) => t.key));
+  ix.layout = { tabs: mergeLayout(built, ix.layout?.tabs ?? [], known), at: new Date().toISOString() };
+  writeIndex(ix);
 }
 
 /**
@@ -552,30 +575,60 @@ async function offerRestoreOnStartup(folder: string): Promise<void> {
 /** The terminal set the last successful reading covered, to not repeat it. */
 let probedKeys: string[] = [];
 let probedAt = 0;
-/** A reading older than this is re-taken: panes can be dragged, silently. */
-const LAYOUT_STALE_MS = 900_000;
+/** When the window lost focus, or 0 while it has it. */
+let blurredAt = 0;
+let blurTimer: NodeJS.Timeout | undefined;
+
+/**
+ * The window gained or lost focus. Losing it arms the automatic pass, which
+ * fires once the grace period has gone by with the window still unfocused;
+ * gaining it disarms the pass, and tells a walk in progress to stop.
+ */
+function onWindowState(folder: string, focused: boolean): void {
+  if (focused) {
+    if (blurTimer) {
+      clearTimeout(blurTimer);
+      blurTimer = undefined;
+    }
+    blurredAt = 0;
+    return;
+  }
+  // The event also fires for changes other than focus; one departure arms
+  // the pass once, and the time it is measured from is the first report.
+  if (blurTimer) {
+    return;
+  }
+  if (!blurredAt) {
+    blurredAt = Date.now();
+  }
+  if (cfg<string>('rememberLayout', 'manual') !== 'onBlur') {
+    return;
+  }
+  blurTimer = setTimeout(() => {
+    blurTimer = undefined;
+    void rememberLayout(folder, true);
+  }, graceMs());
+}
+
+function graceMs(): number {
+  return Math.max(2, cfg('rememberLayoutAfterSeconds', 20)) * 1000;
+}
 
 /**
  * Read which terminals share a tab and write it into the index, so that
  * reopening the project can rebuild the arrangement rather than guess at it.
  *
- * `quiet` is the automatic pass, taken when the window loses focus. It is
- * skipped unless there is an active terminal to put focus back on, because
- * the walk would otherwise pop the panel open on a window nobody is looking
- * at.
+ * `quiet` is the automatic pass. It runs only under the conditions
+ * `autoReadVerdict` spells out, is interrupted the moment the window is in
+ * use again, and hands focus to the terminal that was active -- the API
+ * cannot say where focus really was, which is why this pass is opt-in.
  */
 async function rememberLayout(folder: string, quiet: boolean): Promise<void> {
-  const mode = cfg<string>('rememberLayout', 'onBlur');
-  if (mode === 'off' || (quiet && mode !== 'onBlur')) {
+  const mode = cfg<string>('rememberLayout', 'manual');
+  if (mode === 'off') {
     return;
   }
   const before = vscode.window.activeTerminal;
-  if (quiet && !before) {
-    return;
-  }
-  if (vscode.window.terminals.length < 2) {
-    return;
-  }
 
   const byKey = new Map<string, vscode.Terminal>();
   for (const t of vscode.window.terminals) {
@@ -585,10 +638,21 @@ async function rememberLayout(folder: string, quiet: boolean): Promise<void> {
     }
   }
   const ids = [...byKey.keys()];
-  if (ids.length < 2) {
-    return;
-  }
-  if (quiet && sameTerminals(ids, probedKeys) && Date.now() - probedAt < LAYOUT_STALE_MS) {
+  if (quiet) {
+    const verdict = autoReadVerdict({
+      mode,
+      focused: vscode.window.state.focused,
+      unfocusedForMs: blurredAt ? Date.now() - blurredAt : 0,
+      graceMs: graceMs(),
+      terminals: ids.length,
+      hasActiveTerminal: before !== undefined,
+      unchanged: sameTerminals(ids, probedKeys),
+      lastReadAgeMs: Date.now() - probedAt,
+    });
+    if (verdict !== 'read') {
+      return;
+    }
+  } else if (ids.length < 2) {
     return;
   }
 
@@ -611,13 +675,18 @@ async function rememberLayout(folder: string, quiet: boolean): Promise<void> {
       await settled();
     },
     active: () => keyOf(vscode.window.activeTerminal),
+    // Only the automatic pass gives way: the command was asked for.
+    interrupted: () => quiet && vscode.window.state.focused,
   };
 
-  let tabs: string[][];
+  let tabs: string[][] | null;
   try {
     tabs = await probeGroups(probe);
   } finally {
-    before?.show(false); // put focus back where the walk found it
+    before?.show(false); // the terminal that was active, which is all the API can say
+  }
+  if (!tabs) {
+    return; // interrupted: the window is in use, and half a reading is none
   }
 
   const ix = readIndex(folder);
