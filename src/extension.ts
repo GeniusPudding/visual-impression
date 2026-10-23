@@ -14,8 +14,10 @@ import {
   pruneHistory,
   deleteIndex,
   isWorthRecording,
+  migrateLegacyIndex,
   readIndex,
   restorable,
+  setStateDir,
   planByLayout,
   TabSizes,
   writeIndex,
@@ -38,6 +40,16 @@ export function activate(context: vscode.ExtensionContext): void {
   if (!folder) {
     return; // no folder open: nothing to key an index to
   }
+
+  setStateDir(cfg('stateDirectory', ''));
+  migrateLegacyIndex(folder);
+  context.subscriptions.push(
+    vscode.workspace.onDidChangeConfiguration((e) => {
+      if (e.affectsConfiguration('visualImpression.stateDirectory')) {
+        setStateDir(cfg('stateDirectory', ''));
+      }
+    }),
+  );
 
   context.subscriptions.push(
     vscode.commands.registerCommand('visualImpression.restoreTerminals', () => restoreTerminals(folder)),
@@ -361,8 +373,9 @@ async function restoreTerminals(folder: string): Promise<void> {
     return;
   }
 
+  const previews = cfg('showPreviews', true);
   const items: Choice[] = candidates.map((rec) => {
-    const p = rec.session ? getPreview(rec.app, rec.session, rec.cwd) : null;
+    const p = previews && rec.session ? getPreview(rec.app, rec.session, rec.cwd) : null;
     const title = p?.title ?? rec.title;
     const detail = p?.lastPrompt
       ? '> ' + oneLine(p.lastPrompt)
@@ -403,6 +416,14 @@ async function restoreTerminals(folder: string): Promise<void> {
     spare.length,
     cfg<TabSizes>('restoreTerminalsPerTab', 3),
   );
+  // Every terminal below is created in this one tick, deliberately. A split
+  // only lands in its parent's tab while that parent is still pending: the
+  // extension host sends the parent's internal id, and the main thread looks
+  // it up in a map keyed by the id the terminal was created with, which is
+  // replaced by the instance id the moment the terminal opens. After that the
+  // lookup misses and VS Code quietly opens a tab of its own instead. An
+  // await anywhere in this loop would therefore undo the arrangement, in
+  // silence. integration/layout.spec.js pins it.
   const opened: vscode.Terminal[] = [];
   order.forEach((pick, i) => {
     const where = plan[i];
@@ -447,6 +468,7 @@ async function spareTerminals(folder: string): Promise<vscode.Terminal[]> {
  * which is the only layout control the API offers: a terminal can be created
  * beside a given parent, but no terminal can be asked which tab it is in.
  */
+/** Must stay synchronous: see the note in restoreTerminals about splits. */
 function openFor(
   rec: TerminalRecord,
   reuse?: vscode.Terminal,
@@ -664,7 +686,7 @@ async function showStatus(folder: string): Promise<void> {
 }
 
 function row(t: TerminalRecord): string {
-  const p = t.session ? getPreview(t.app, t.session, t.cwd) : null;
+  const p = cfg('showPreviews', true) && t.session ? getPreview(t.app, t.session, t.cwd) : null;
   const title = p?.title ?? t.title ?? t.name;
   const when = t.closedAt ? `closed ${ago(t.closedAt)}` : 'open';
   const parts = [`- **[${t.app}]** ${title} — _${when}_`];

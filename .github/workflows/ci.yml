@@ -1,0 +1,51 @@
+name: CI
+
+on:
+  push:
+    branches: [master, main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test:
+    name: ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - run: npm ci
+
+      - run: npm run lint
+
+      - name: Unit tests
+        run: npm test
+
+      # VS Code needs a display; Linux runners have none.
+      - name: Integration tests (Linux)
+        if: runner.os == 'Linux'
+        run: xvfb-run -a npm run test:vscode
+
+      - name: Integration tests
+        if: runner.os != 'Linux'
+        run: npm run test:vscode
+
+      - name: Package
+        if: runner.os == 'Linux'
+        run: npx vsce package --no-dependencies
+
+      - name: Keep the vsix
+        if: runner.os == 'Linux'
+        uses: actions/upload-artifact@v4
+        with:
+          name: visual-impression-vsix
+          path: '*.vsix'

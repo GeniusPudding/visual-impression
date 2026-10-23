@@ -2,9 +2,14 @@
   "name": "visual-impression",
   "displayName": "Visual Impression",
   "description": "Restore the AI coding conversation that was running in each terminal, per project. Works locally and over Remote SSH.",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "publisher": "geniuspudding",
   "license": "MIT",
+  "icon": "media/icon.png",
+  "galleryBanner": {
+    "color": "#10161F",
+    "theme": "dark"
+  },
   "repository": {
     "type": "git",
     "url": "https://github.com/GeniusPudding/visual-impression"
@@ -14,6 +19,7 @@
     "node": ">=20.0.0"
   },
   "categories": [
+    "AI",
     "Other"
   ],
   "keywords": [
@@ -31,6 +37,22 @@
     "onStartupFinished"
   ],
   "main": "./out/extension.js",
+  "extensionKind": [
+    "workspace"
+  ],
+  "capabilities": {
+    "untrustedWorkspaces": {
+      "supported": "limited",
+      "description": "The extension records terminals and resumes agent conversations. It never runs anything from the workspace, but a workspace setting could point its index at a path of the workspace's choosing, so that one setting is ignored until the workspace is trusted.",
+      "restrictedConfigurations": [
+        "visualImpression.stateDirectory"
+      ]
+    },
+    "virtualWorkspaces": {
+      "supported": false,
+      "description": "It reads the agent's transcripts and the process table on the machine the terminals are on, so it needs a real filesystem."
+    }
+  },
   "contributes": {
     "commands": [
       {
@@ -70,6 +92,16 @@
           "type": "number",
           "default": 14,
           "description": "Forget terminals that closed more than this many days ago."
+        },
+        "visualImpression.showPreviews": {
+          "type": "boolean",
+          "default": true,
+          "markdownDescription": "Show a line of each conversation -- its title and its last prompt -- in the picker and in the status report, read from the agent's own transcript on this machine. Turn it off to list conversations by terminal name alone, for instance when the screen is being shared."
+        },
+        "visualImpression.stateDirectory": {
+          "type": "string",
+          "default": "",
+          "markdownDescription": "Where to keep the per-project index. Empty means `~/.visual-impression`. A `~` at the start is your home directory. An index left behind by an earlier version in `~/.wt-tabs/vscode` is moved here once, automatically."
         },
         "visualImpression.rememberLayout": {
           "type": "string",
@@ -112,13 +144,21 @@
     "watch": "tsc -watch -p ./",
     "vscode:prepublish": "npm run compile",
     "package": "vsce package --no-dependencies",
-    "test": "npm run compile && node --test"
+    "test": "npm run compile && node --test",
+    "lint": "eslint src test integration",
+    "test:vscode": "npm run compile && node scripts/run-integration.mjs",
+    "check": "npm run lint && npm test && npm run test:vscode"
   },
   "devDependencies": {
+    "@eslint/js": "^9.39.5",
     "@types/node": "^20.11.0",
     "@types/vscode": "^1.93.0",
+    "@vscode/test-cli": "^0.0.11",
+    "@vscode/test-electron": "^2.5.2",
     "@vscode/vsce": "^4.0.0",
-    "typescript": "^5.4.0"
+    "eslint": "^9.39.5",
+    "typescript": "^5.4.0",
+    "typescript-eslint": "^8.72.0"
   },
   "bugs": {
     "url": "https://github.com/GeniusPudding/visual-impression/issues"

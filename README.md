@@ -84,16 +84,20 @@ there is nothing to bring back. Missing the notification costs nothing.
 | `visualImpression.promptOnStartup` | `true` | offer to restore when a project with history is opened |
 | `visualImpression.scanIntervalSeconds` | `45` | how often to re-check which agent each terminal is running |
 | `visualImpression.historyDays` | `14` | forget terminals closed longer ago than this |
+| `visualImpression.showPreviews` | `true` | show a line of each conversation, read from the agent's transcript; off for a shared screen |
+| `visualImpression.stateDirectory` | `~/.visual-impression` | where the per-project index is kept |
 | `visualImpression.rememberLayout` | `onBlur` | when to read which terminals share a tab: `onBlur`, `manual`, `off` |
 | `visualImpression.restoreTerminalsPerTab` | `3` | how many new terminals to place side by side as splits in one tab; `1` = a tab each; a list such as `[2, 1, 3]` gives each tab its own count |
 | `visualImpression.reuseRevivedTerminals` | `true` | resume into a terminal VS Code revived rather than opening another |
 
 ## Where it stores things
 
-`~/.wt-tabs/vscode/<project>.json`, one file per project -- deliberately
-alongside the terminal tool's own state rather than in `workspaceState`, so
-that `wts` can read it and one command still answers "where was I". A window
+`~/.visual-impression/<project>.json`, one file per project -- a plain file
+rather than the extension's `workspaceState`, so that another tool can read
+it and one command outside VS Code still answers "where was I". A window
 that never reopens does not take its history with it either.
+`visualImpression.stateDirectory` moves it. An index left in the old
+location, `~/.wt-tabs/vscode`, is moved across once, automatically.
 
 ## Identifying a conversation
 
@@ -159,6 +163,32 @@ not: the walk enters each tab at its earliest-created pane and wraps, so a
 tab reads left to right only if its panes were split in the order they were
 created. Pane widths cannot be read or set by an extension at all.
 
+## Data and privacy
+
+Nothing leaves the machine. There is no telemetry, no network access of any
+kind, and no runtime dependencies.
+
+| What it reads | Why |
+|---|---|
+| the process table | to tell which terminal is running `claude` or `codex`, and with which conversation |
+| `~/.codex/sessions/**`, `~/.claude/projects/**`, `~/.claude/sessions/**` | the agent's own transcripts, for the conversation id and the line shown in the picker |
+| the command you last ran in a plain terminal | so a restored terminal can offer it back |
+
+| What it writes | Where |
+|---|---|
+| one JSON file per project: terminal names, working directories, pids, conversation ids and times | `~/.visual-impression/`, or `visualImpression.stateDirectory` |
+
+The picker and the status report show a line of the conversation --
+its title and last prompt. `visualImpression.showPreviews: false` turns that
+off and lists terminals by name alone, which is what you want on a screen
+that is being shared. **Visual Impression: Forget this workspace's history**
+deletes a project's file; the directory is yours to delete at any time.
+
+A restored agent terminal runs `claude --resume <id>` or
+`codex resume <id>`. A restored plain terminal has its last command typed
+into it and **not** run -- reopening a project must never re-run a deploy or
+a migration.
+
 ## Known limits
 
 - **macOS and Linux are written but not yet verified.** The process walk is
@@ -218,13 +248,22 @@ created. Pane widths cannot be read or set by an extension at all.
 ## Development
 
 ```
-npm install
-npm run compile
-npm test            # 32 tests; the last three read the real process table
-npm run package     # builds the .vsix
+npm ci
+npm run lint
+npm test             # 54 unit tests; three of them read the real process table
+npm run test:vscode  # 4 tests in a real VS Code, downloaded on first run
+npm run check        # all three, which is what CI runs
+npm run package      # builds the .vsix
 ```
 
 Press `F5` in VS Code to launch an Extension Development Host.
+`docs/toolchain.md` lists every tool and what uses it.
+
+The integration tests matter more than their number suggests: they are what
+pins the two pieces of VS Code behaviour the arrangement depends on, both of
+which are undocumented, and one of which has a trap in it that makes splits
+fail silently. The note at the top of `integration/layout.spec.js` explains
+it.
 
 MIT.
 

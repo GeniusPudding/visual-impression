@@ -270,6 +270,55 @@ test('store: an unreadable index reads as empty rather than throwing', () => {
   });
 });
 
+// The index used to live beside the Windows terminal tool this grew out of.
+// A published extension cannot leave a ~/.wt-tabs directory on a stranger's
+// machine, so it moved -- and has to bring an existing history with it.
+test('store: an index from the old location is moved, once', () => {
+  const home = tempHome();
+  withHome(home, () => {
+    const folder = '/w/repo';
+    const old = path.join(store.legacyStateDir(), store.slugFor(folder) + '.json');
+    fs.mkdirSync(path.dirname(old), { recursive: true });
+    fs.writeFileSync(old, JSON.stringify({ version: 1, folder, terminals: [{ key: 'kept' }] }));
+
+    assert.strictEqual(store.migrateLegacyIndex(folder), old);
+    assert.strictEqual(fs.existsSync(old), false, 'the old copy must not be left to go stale');
+    assert.deepStrictEqual(store.readIndex(folder).terminals.map((t) => t.key), ['kept']);
+    assert.strictEqual(store.migrateLegacyIndex(folder), null, 'nothing left to move');
+  });
+});
+
+test('store: migrating never overwrites an index already in the new place', () => {
+  const home = tempHome();
+  withHome(home, () => {
+    const folder = '/w/repo';
+    const old = path.join(store.legacyStateDir(), store.slugFor(folder) + '.json');
+    fs.mkdirSync(path.dirname(old), { recursive: true });
+    fs.writeFileSync(old, JSON.stringify({ version: 1, folder, terminals: [{ key: 'stale' }] }));
+    fs.mkdirSync(store.stateDir(), { recursive: true });
+    fs.writeFileSync(store.indexPath(folder), JSON.stringify({ version: 1, folder, terminals: [{ key: 'current' }] }));
+
+    assert.strictEqual(store.migrateLegacyIndex(folder), null);
+    assert.deepStrictEqual(store.readIndex(folder).terminals.map((t) => t.key), ['current']);
+  });
+});
+
+test('store: the state directory can be moved, and ~ means home', () => {
+  const home = tempHome();
+  withHome(home, () => {
+    try {
+      store.setStateDir('~/elsewhere');
+      assert.strictEqual(store.stateDir(), path.join(home, 'elsewhere'));
+      store.setStateDir(path.join(home, 'absolute'));
+      assert.strictEqual(store.stateDir(), path.join(home, 'absolute'));
+      store.setStateDir('   ');
+      assert.strictEqual(store.stateDir(), path.join(home, '.visual-impression'));
+    } finally {
+      store.setStateDir('');
+    }
+  });
+});
+
 test('store: prunes closed terminals past the window but never open ones', () => {
   const old = new Date(Date.now() - 30 * 86400_000).toISOString();
   const ix = {
@@ -304,7 +353,7 @@ test('restorable: offers closed records, newest first', () => {
 // marks every record closed, then the scan finds them live again. Offering one
 // back would start a second agent on a conversation already running.
 test('REGRESSION -- restorable: never offers a terminal that is on screen', () => {
-  const ix = { version: 1, folder: 'C:\work\repo', updatedAt: '', terminals: [
+  const ix = { version: 1, folder: 'C:\\work\\repo', updatedAt: '', terminals: [
     { key: '5320:pwsh', app: 'claude', closedAt: '2026-10-20T08:00:00.000Z' },
     { key: '4100:pwsh', app: 'claude', closedAt: '2026-10-20T08:00:00.000Z' },
   ] };

@@ -1,9 +1,17 @@
 .vscode/**
 src/**
 test/**
+integration/**
 out/**/*.map
 node_modules/**
 tsconfig.json
 .gitignore
 .vscodeignore
 **/*.ts
+scripts/make-icon.py
+scripts/run-integration.mjs
+docs/**
+.github/**
+*.vsix
+.vscode-test.mjs
+eslint.config.mjs

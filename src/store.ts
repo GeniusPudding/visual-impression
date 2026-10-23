@@ -1,9 +1,10 @@
 // The per-project index, on disk.
 //
-// This deliberately lives next to the terminal tool's own state, under
-// ~/.wt-tabs, rather than in the extension's workspaceState. Two reasons:
-// `wts` can read it, so one command still answers "where is all my work"; and
-// a VS Code window that never reopens does not take its history with it.
+// This deliberately lives in a plain directory under the home directory,
+// ~/.visual-impression, rather than in the extension's workspaceState. Two
+// reasons: another tool can read it, so one command outside VS Code can still
+// answer "where is all my work"; and a VS Code window that never reopens does
+// not take its history with it. `visualImpression.stateDirectory` moves it.
 
 import * as fs from 'fs';
 import * as os from 'os';
@@ -46,8 +47,49 @@ export interface WorkspaceIndex {
   layout?: LayoutRecord;
 }
 
+/** Set from `visualImpression.stateDirectory`; empty means the default. */
+let override = '';
+
+export function setStateDir(dir: string): void {
+  const trimmed = (dir || '').trim();
+  override = trimmed.startsWith('~')
+    ? path.join(os.homedir(), trimmed.slice(1))
+    : trimmed;
+}
+
 export function stateDir(): string {
+  return override || path.join(os.homedir(), '.visual-impression');
+}
+
+/**
+ * Where this lived before the extension had a name of its own: beside the
+ * Windows terminal tool it grew out of. Indexes found there are moved on
+ * first use, once, rather than left behind for a tool to read as current.
+ */
+export function legacyStateDir(): string {
   return path.join(os.homedir(), '.wt-tabs', 'vscode');
+}
+
+/** Returns the path it moved, for the log line, or null if there was none. */
+export function migrateLegacyIndex(folder: string): string | null {
+  const from = path.join(legacyStateDir(), slugFor(folder) + '.json');
+  const to = indexPath(folder);
+  try {
+    if (!fs.existsSync(from) || fs.existsSync(to)) {
+      return null;
+    }
+    fs.mkdirSync(path.dirname(to), { recursive: true });
+    try {
+      fs.renameSync(from, to);
+    } catch {
+      // A different volume, or a lock: copying still leaves the index usable.
+      fs.copyFileSync(from, to);
+      fs.unlinkSync(from);
+    }
+    return from;
+  } catch {
+    return null;
+  }
 }
 
 /**
