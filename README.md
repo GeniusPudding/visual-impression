@@ -1,5 +1,7 @@
 # Visual Impression
 
+[![CI](https://github.com/GeniusPudding/visual-impression/actions/workflows/ci.yml/badge.svg)](https://github.com/GeniusPudding/visual-impression/actions/workflows/ci.yml)
+
 Remembers which AI coding conversation was running in which terminal, per
 project, and offers them back when you reopen the folder. Windows, macOS and
 Linux, including over Remote SSH.
