@@ -4,6 +4,14 @@ All notable changes to Visual Impression. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project
 follows [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.2] - 2026-10-24
+
+### Added
+
+- The hand-off URI takes `project=…` as well as `task=…`; it is exported to
+  the terminal as `ASSISTANT_HUB_PROJECT`, for a conversation opened on a
+  development line rather than a ticket.
+
 ## [0.3.1] - 2026-10-24
 
 ### Fixed

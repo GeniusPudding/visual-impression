@@ -744,7 +744,7 @@ const handoff = require(path.join(OUT, 'handoff.js'));
 test('a hand-off link names an agent, ids and a prompt, and nothing else gets through', () => {
   const ok = handoff.parseHandoff('cwd=C%3A%2Fwork&agent=claude&task=T-abc123&session=6f1d2c3b-4a5e-4f60-9b7c-8d9e0f1a2b3c&prompt=%E8%AB%8B%E5%85%88%E8%AE%80&title=%E6%95%B4%E7%90%86');
   assert.deepStrictEqual(ok, {
-    cwd: 'C:/work', agent: 'claude', task: 'T-abc123', session: '6f1d2c3b-4a5e-4f60-9b7c-8d9e0f1a2b3c',
+    cwd: 'C:/work', agent: 'claude', task: 'T-abc123', project: undefined, session: '6f1d2c3b-4a5e-4f60-9b7c-8d9e0f1a2b3c',
     resume: false, prompt: '請先讀', title: '整理',
   });
   assert.strictEqual(handoff.parseHandoff('cwd=C%3A%2Fwork').agent, 'claude', 'claude is the default agent');
@@ -811,4 +811,13 @@ test('text waits for the shell to report ready, and gives up after the timeout',
   assert.strictEqual(await late, false, 'no report in time: type anyway');
   assert.ok(sub2.disposed);
   fire(); // a report after the timeout changes nothing
+});
+
+test('a hand-off may name a development line instead of a ticket, and the terminal gets the matching variable', () => {
+  const req = handoff.parseHandoff('cwd=C%3A%2Fw&agent=claude&project=visual-impression');
+  assert.strictEqual(req.project, 'visual-impression');
+  assert.deepStrictEqual(handoff.handoffEnv(req), { ASSISTANT_HUB_PROJECT: 'visual-impression' });
+  assert.deepStrictEqual(handoff.handoffEnv({ cwd: 'C:/w', agent: 'codex', resume: false, task: 'T-abc123' }), { ASSISTANT_HUB_TASK: 'T-abc123' });
+  assert.deepStrictEqual(handoff.handoffEnv({ cwd: 'C:/w', agent: 'codex', resume: false }), {});
+  assert.strictEqual(handoff.parseHandoff('cwd=x&project=bad%20id'), null);
 });

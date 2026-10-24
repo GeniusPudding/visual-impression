@@ -17,6 +17,8 @@ export interface HandoffRequest {
   agent: HandoffAgent;
   /** The ticket the terminal is for; exported as ASSISTANT_HUB_TASK. */
   task?: string;
+  /** The development line it is for; exported as ASSISTANT_HUB_PROJECT. */
+  project?: string;
   /** A conversation to resume, or (Claude Code only) the id to start under. */
   session?: string;
   resume: boolean;
@@ -25,6 +27,7 @@ export interface HandoffRequest {
 }
 
 const TASK = /^T-[a-f0-9]+$/;
+const PROJECT = /^[A-Za-z0-9][A-Za-z0-9:._-]{0,99}$/;
 const SESSION = /^[A-Za-z0-9-]{8,64}$/;
 const PROMPT_MAX = 500;
 
@@ -34,6 +37,7 @@ export function parseHandoff(query: string): HandoffRequest | null {
   const cwd = q.get('cwd') ?? '';
   const agent = q.get('agent') ?? 'claude';
   const task = q.get('task') ?? undefined;
+  const project = q.get('project') ?? undefined;
   const session = q.get('session') || undefined;
   const prompt = q.get('prompt') ?? undefined;
   const title = q.get('title') ?? undefined;
@@ -41,6 +45,9 @@ export function parseHandoff(query: string): HandoffRequest | null {
     return null;
   }
   if ((task !== undefined && !TASK.test(task)) || (session !== undefined && !SESSION.test(session))) {
+    return null;
+  }
+  if (project !== undefined && !PROJECT.test(project)) {
     return null;
   }
   // A prompt is one line the owner will see typed; control characters have no place in it.
@@ -55,11 +62,24 @@ export function parseHandoff(query: string): HandoffRequest | null {
     cwd,
     agent,
     task,
+    project,
     session,
     resume,
     prompt: prompt?.trim() || undefined,
     title: title?.trim().slice(0, 80) || undefined,
   };
+}
+
+/** The variables the hub's hook reads to bind the conversation to its ticket or project. */
+export function handoffEnv(req: HandoffRequest): Record<string, string> {
+  const env: Record<string, string> = {};
+  if (req.task) {
+    env.ASSISTANT_HUB_TASK = req.task;
+  }
+  if (req.project) {
+    env.ASSISTANT_HUB_PROJECT = req.project;
+  }
+  return env;
 }
 
 /** One argument, quoted for the shell the terminal runs. */

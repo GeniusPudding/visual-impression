@@ -31,6 +31,7 @@ import {
   PENDING_HANDOFF_KEY,
   PendingHandoff,
   handoffCommand,
+  handoffEnv,
   parseHandoff,
   pendingFor,
   sameFolder,
@@ -144,7 +145,7 @@ function workspaceFolder(): string | undefined {
 // -------------------------------------------------------------- hand-off ----
 //
 // vscode://geniuspudding.visual-impression/handoff?cwd=…&agent=claude|codex
-//   [&task=T-…][&session=…][&resume=1][&prompt=…][&title=…]
+//   [&task=T-…][&project=…][&session=…][&resume=1][&prompt=…][&title=…]
 //
 // Opens a terminal in that folder and starts the agent. The URI names an
 // agent, ids and a prompt; the command line is built here (see handoff.ts), so
@@ -181,10 +182,11 @@ function takePendingHandoff(context: vscode.ExtensionContext, folder: string): v
 }
 
 function openHandoffTerminal(req: HandoffRequest): vscode.Terminal {
+  const env = handoffEnv(req);
   const term = vscode.window.createTerminal({
     name: req.title ?? (req.agent === 'claude' ? 'Claude Code' : 'Codex'),
     cwd: req.cwd,
-    ...(req.task ? { env: { ASSISTANT_HUB_TASK: req.task } } : {}),
+    ...(Object.keys(env).length ? { env } : {}),
   });
   term.show(true);
   // Created without a shellPath, so the terminal runs the default profile, which is what env.shell names.

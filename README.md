@@ -86,7 +86,7 @@ through the extension's URI:
 
 ```
 vscode://geniuspudding.visual-impression/handoff?cwd=C%3A%2Fwork%2Fproj&agent=claude
-    [&task=T-…][&session=…][&resume=1][&prompt=…][&title=…]
+    [&task=T-…][&project=…][&session=…][&resume=1][&prompt=…][&title=…]
 ```
 
 | Parameter | |
@@ -94,6 +94,7 @@ vscode://geniuspudding.visual-impression/handoff?cwd=C%3A%2Fwork%2Fproj&agent=cl
 | `cwd` | the folder; required |
 | `agent` | `claude` (default) or `codex` |
 | `task` | a ticket id (`T-…`), exported to the terminal as `ASSISTANT_HUB_TASK` |
+| `project` | a development-line id, exported as `ASSISTANT_HUB_PROJECT` |
 | `session` | a conversation id: with `resume=1` it is resumed (`claude --resume`, `codex resume`); without, Claude Code is started under it (`--session-id`) |
 | `prompt` | one line, up to 500 characters, typed as the first prompt |
 | `title` | the terminal's name |
