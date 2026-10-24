@@ -4,6 +4,15 @@ All notable changes to Visual Impression. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project
 follows [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.1] - 2026-10-24
+
+### Fixed
+
+- A resumed conversation's command, and a hand-off's, is typed only once
+  the terminal's shell reports itself ready (or after four seconds for a
+  shell without shell integration). Sent at creation, PowerShell swallowed
+  the first byte and `claude --resume …` arrived as `laude --resume …`.
+
 ## [0.3.0] - 2026-10-24
 
 ### Added

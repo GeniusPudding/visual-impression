@@ -37,6 +37,7 @@ import {
   shellKindOf,
 } from './handoff';
 import { invalidateProcessCache } from './procs';
+import { SHELL_READY_TIMEOUT_MS, whenReady } from './ready';
 import { invalidateRolloutCache, resolveTerminal } from './resolve';
 import { getPreview, oneLine } from './preview';
 
@@ -187,8 +188,27 @@ function openHandoffTerminal(req: HandoffRequest): vscode.Terminal {
   });
   term.show(true);
   // Created without a shellPath, so the terminal runs the default profile, which is what env.shell names.
-  term.sendText(handoffCommand(req, shellKindOf(vscode.env.shell)), true);
+  typeInto(term, handoffCommand(req, shellKindOf(vscode.env.shell)), true);
   return term;
+}
+
+/**
+ * Type into a terminal once its shell is ready. Text sent while PowerShell is
+ * still starting loses its first byte (`laude --resume`), so this waits for
+ * the shell-integration report, or SHELL_READY_TIMEOUT_MS for a shell that
+ * never sends one.
+ */
+function typeInto(term: vscode.Terminal, text: string, execute: boolean): void {
+  const ready = whenReady(
+    Boolean(term.shellIntegration),
+    (fire) => vscode.window.onDidChangeTerminalShellIntegration((e) => e.terminal === term && fire()),
+    SHELL_READY_TIMEOUT_MS,
+  );
+  void ready.then(() => {
+    if (!term.exitStatus) {
+      term.sendText(text, execute);
+    }
+  });
 }
 
 function cfg<T>(key: string, fallback: T): T {
@@ -580,13 +600,13 @@ function openFor(
   term.show(false);
   const cmd = resumeCommand(rec);
   if (cmd) {
-    term.sendText(cmd, true);
+    typeInto(term, cmd, true);
     return term;
   }
   // A plain shell: put the command back on the prompt WITHOUT running it.
   // Reopening a window must never re-run a deploy, a migration or an rm.
   if (rec.lastCommand) {
-    term.sendText(rec.lastCommand, false);
+    typeInto(term, rec.lastCommand, false);
   }
   return term;
 }

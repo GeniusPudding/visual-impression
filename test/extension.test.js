@@ -784,3 +784,31 @@ test('a parked hand-off is taken only by the window with that folder, and only w
   assert.strictEqual(handoff.pendingFor(undefined, 'C:/Work/Proj'), null);
   assert.strictEqual(handoff.pendingFor(pending, undefined, 1_000_000), null);
 });
+
+// ---------------------------------------------------------- shell ready ----
+
+const ready = require(path.join(OUT, 'ready.js'));
+
+test('text waits for the shell to report ready, and gives up after the timeout', async () => {
+  const timers = { set: (fn) => ({ fn }), clear(handle) { this.cleared = handle; } };
+  let fire;
+  const sub = { disposed: false, dispose() { this.disposed = true; } };
+  const onReady = (cb) => { fire = cb; return sub; };
+
+  assert.strictEqual(await ready.whenReady(true, onReady, 100, timers), true, 'already ready: no waiting');
+
+  const waiting = ready.whenReady(false, onReady, 100, timers);
+  fire();
+  assert.strictEqual(await waiting, true);
+  assert.ok(sub.disposed, 'the listener is dropped once it fired');
+  assert.ok(timers.cleared, 'the timeout is cancelled');
+
+  const sub2 = { disposed: false, dispose() { this.disposed = true; } };
+  let handle;
+  const slow = { set: (fn) => (handle = { fn }), clear() {} };
+  const late = ready.whenReady(false, (cb) => { fire = cb; return sub2; }, 100, slow);
+  handle.fn();
+  assert.strictEqual(await late, false, 'no report in time: type anyway');
+  assert.ok(sub2.disposed);
+  fire(); // a report after the timeout changes nothing
+});
