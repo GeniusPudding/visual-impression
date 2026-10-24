@@ -60,3 +60,22 @@ test('listProcesses: a long command line survives intact', async () => {
     child.kill();
   }
 });
+
+// On Windows the table arrives through PowerShell's stdout, in the console
+// code page unless asked otherwise. In Big5 the second byte of 許, 功 or 蓋 is
+// a backslash, so one Chinese command line used to make the JSON unparseable
+// and the whole table empty -- for every terminal, not only that one.
+test('listProcesses: a command line with non-ASCII text leaves the table intact', async () => {
+  const marker = 'windoalls許功蓋請先完整閱讀交接摘要' + Date.now();
+  const child = spawn(process.execPath, ['-e', 'setTimeout(function(){}, 8000)', marker], {
+    stdio: 'ignore',
+  });
+  try {
+    const { row, procs } = await findPid(child.pid);
+    assert.ok(procs.length > 5, 'the table must survive the non-ASCII entry');
+    assert.ok(row, 'the child process must appear in the table');
+    assert.ok(row.commandLine.includes(marker), 'the text must come back as written, not transcoded');
+  } finally {
+    child.kill();
+  }
+});

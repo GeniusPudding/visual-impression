@@ -84,7 +84,12 @@ function argv0Name(commandLine: string): string {
 }
 
 async function listWindows(): Promise<Proc[]> {
+  // PowerShell writes stdout in the console code page. On a Big5 (CP950)
+  // system a Chinese command line -- `claude "請先讀…"` -- comes out as bytes
+  // whose trailing byte can be 0x5C, a backslash, which turns the JSON into
+  // an invalid escape and the whole table into nothing. Ask for UTF-8.
   const ps =
+    '[Console]::OutputEncoding = [Text.Encoding]::UTF8; ' +
     'Get-CimInstance Win32_Process | ' +
     'Select-Object ProcessId,ParentProcessId,Name,CommandLine | ' +
     'ConvertTo-Json -Compress -Depth 2';
