@@ -4,6 +4,19 @@ All notable changes to Visual Impression. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project
 follows [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.0] - 2026-10-24
+
+### Added
+
+- A URI, `vscode://geniuspudding.visual-impression/handoff`, through which
+  another program opens a terminal in a folder and starts Claude Code or
+  Codex there -- fresh, under a chosen session id, or resuming a known
+  conversation -- with a first prompt and a ticket id in the environment.
+  A request for a folder this window does not have is parked and the folder
+  opened; the window that has it takes the request. The link names an
+  agent, ids and a prompt and nothing else; the command is built by the
+  extension.
+
 ## [0.2.0] - 2026-10-23
 
 ### Added

@@ -26,6 +26,16 @@ import {
   writeIndex,
 } from './store';
 import { PaneProbe, autoReadVerdict, probeGroups, sameTerminals } from './layout';
+import {
+  HandoffRequest,
+  PENDING_HANDOFF_KEY,
+  PendingHandoff,
+  handoffCommand,
+  parseHandoff,
+  pendingFor,
+  sameFolder,
+  shellKindOf,
+} from './handoff';
 import { invalidateProcessCache } from './procs';
 import { invalidateRolloutCache, resolveTerminal } from './resolve';
 import { getPreview, oneLine } from './preview';
@@ -40,6 +50,13 @@ let status: vscode.StatusBarItem | undefined;
 
 export function activate(context: vscode.ExtensionContext): void {
   const folder = workspaceFolder();
+  // The URI handler is registered even with no folder open: a request for a
+  // folder this window does not have is parked and the folder opened.
+  context.subscriptions.push(
+    vscode.window.registerUriHandler({
+      handleUri: (uri) => void onHandoffUri(context, folder, uri),
+    }),
+  );
   if (!folder) {
     return; // no folder open: nothing to key an index to
   }
@@ -64,6 +81,10 @@ export function activate(context: vscode.ExtensionContext): void {
     // and is called off the moment focus comes back.
     vscode.window.onDidChangeWindowState((st) => onWindowState(folder, st.focused)),
     { dispose: () => onWindowState(folder, true) },
+    // A hand-off parked for this folder by another window is taken when this
+    // one starts, or when it is brought to the front (VS Code focuses the
+    // window that already has the folder rather than opening a second one).
+    vscode.window.onDidChangeWindowState((st) => st.focused && takePendingHandoff(context, folder)),
     vscode.window.onDidOpenTerminal(() => scheduleScan(folder, 2500)),
     vscode.window.onDidCloseTerminal((t) => onClosed(folder, t)),
     vscode.window.onDidChangeActiveTerminal(() => scheduleScan(folder, 1500)),
@@ -82,6 +103,7 @@ export function activate(context: vscode.ExtensionContext): void {
   closeAllStale(folder);
 
   startPolling(folder, context);
+  takePendingHandoff(context, folder);
 
   // The prompt must not wait for a scan. Resolving which agent is in which
   // terminal costs a PowerShell start-up -- over a second -- and the prompt
@@ -116,6 +138,57 @@ export function deactivate(): void {
 
 function workspaceFolder(): string | undefined {
   return vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+}
+
+// -------------------------------------------------------------- hand-off ----
+//
+// vscode://geniuspudding.visual-impression/handoff?cwd=…&agent=claude|codex
+//   [&task=T-…][&session=…][&resume=1][&prompt=…][&title=…]
+//
+// Opens a terminal in that folder and starts the agent. The URI names an
+// agent, ids and a prompt; the command line is built here (see handoff.ts), so
+// the link cannot run anything else.
+
+async function onHandoffUri(context: vscode.ExtensionContext, folder: string | undefined, uri: vscode.Uri): Promise<void> {
+  if (uri.path !== '/handoff') {
+    return;
+  }
+  const req = parseHandoff(uri.query);
+  if (!req) {
+    void vscode.window.showWarningMessage('Visual Impression: that hand-off link is not well-formed, so nothing was opened.');
+    return;
+  }
+  if (sameFolder(folder, req.cwd)) {
+    openHandoffTerminal(req);
+    return;
+  }
+  // Another folder: park the request where every window can read it, and
+  // open the folder. The window that has it (new, or the existing one VS Code
+  // brings forward) picks the request up.
+  const pending: PendingHandoff = { ...req, at: Date.now() };
+  await context.globalState.update(PENDING_HANDOFF_KEY, pending);
+  await vscode.commands.executeCommand('vscode.openFolder', vscode.Uri.file(req.cwd), { forceNewWindow: true });
+}
+
+function takePendingHandoff(context: vscode.ExtensionContext, folder: string): void {
+  const req = pendingFor(context.globalState.get<PendingHandoff>(PENDING_HANDOFF_KEY), folder);
+  if (!req) {
+    return;
+  }
+  void context.globalState.update(PENDING_HANDOFF_KEY, undefined);
+  openHandoffTerminal(req);
+}
+
+function openHandoffTerminal(req: HandoffRequest): vscode.Terminal {
+  const term = vscode.window.createTerminal({
+    name: req.title ?? (req.agent === 'claude' ? 'Claude Code' : 'Codex'),
+    cwd: req.cwd,
+    ...(req.task ? { env: { ASSISTANT_HUB_TASK: req.task } } : {}),
+  });
+  term.show(true);
+  // Created without a shellPath, so the terminal runs the default profile, which is what env.shell names.
+  term.sendText(handoffCommand(req, shellKindOf(vscode.env.shell)), true);
+  return term;
 }
 
 function cfg<T>(key: string, fallback: T): T {

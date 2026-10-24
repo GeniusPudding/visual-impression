@@ -79,6 +79,34 @@ worth finding an hour later -- so the count also sits in the status bar,
 `$(history) 3`, and clicking it opens the same picker. It hides itself when
 there is nothing to bring back. Missing the notification costs nothing.
 
+### Opening an agent from outside VS Code
+
+Another program on the machine can ask for a terminal with an agent in it
+through the extension's URI:
+
+```
+vscode://geniuspudding.visual-impression/handoff?cwd=C%3A%2Fwork%2Fproj&agent=claude
+    [&task=T-…][&session=…][&resume=1][&prompt=…][&title=…]
+```
+
+| Parameter | |
+|---|---|
+| `cwd` | the folder; required |
+| `agent` | `claude` (default) or `codex` |
+| `task` | a ticket id (`T-…`), exported to the terminal as `ASSISTANT_HUB_TASK` |
+| `session` | a conversation id: with `resume=1` it is resumed (`claude --resume`, `codex resume`); without, Claude Code is started under it (`--session-id`) |
+| `prompt` | one line, up to 500 characters, typed as the first prompt |
+| `title` | the terminal's name |
+
+If this window has that folder open, the terminal opens here. Otherwise the
+request is parked and the folder opened; the window that has it -- a new one,
+or the one VS Code brings forward -- opens the terminal, within two minutes.
+
+The link cannot run anything else: it carries an agent name, ids that must
+look like ids, and a prompt. The command line is assembled by the extension
+from those, so the worst a bad link can do is start Claude Code or Codex with
+a prompt you can see. The owner's assistant hub uses this for its 接手 button.
+
 ## Settings
 
 | Setting | Default | |

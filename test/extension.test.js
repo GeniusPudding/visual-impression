@@ -736,3 +736,51 @@ test('oneLine: flattens and truncates', () => {
   assert.strictEqual(oneLine('x'.repeat(50), 10).length, 10);
   assert.strictEqual(oneLine(null), '');
 });
+
+// ------------------------------------------------------------- hand-off ----
+
+const handoff = require(path.join(OUT, 'handoff.js'));
+
+test('a hand-off link names an agent, ids and a prompt, and nothing else gets through', () => {
+  const ok = handoff.parseHandoff('cwd=C%3A%2Fwork&agent=claude&task=T-abc123&session=6f1d2c3b-4a5e-4f60-9b7c-8d9e0f1a2b3c&prompt=%E8%AB%8B%E5%85%88%E8%AE%80&title=%E6%95%B4%E7%90%86');
+  assert.deepStrictEqual(ok, {
+    cwd: 'C:/work', agent: 'claude', task: 'T-abc123', session: '6f1d2c3b-4a5e-4f60-9b7c-8d9e0f1a2b3c',
+    resume: false, prompt: '請先讀', title: '整理',
+  });
+  assert.strictEqual(handoff.parseHandoff('cwd=C%3A%2Fwork').agent, 'claude', 'claude is the default agent');
+  assert.strictEqual(handoff.parseHandoff('cwd=C%3A%2Fwork&agent=codex&session=abc12345&resume=1').resume, true);
+  for (const bad of [
+    '', 'agent=claude', // no folder
+    'cwd=x&agent=gemini', // not one of the two agents
+    'cwd=x&task=rm%20-rf', 'cwd=x&session=a%20b', // ids that are not ids
+    'cwd=x&resume=1', // resume without a conversation
+    'cwd=x&prompt=line%0Atwo', // a prompt with a newline
+    'cwd=x&prompt=' + 'a'.repeat(501),
+  ]) {
+    assert.strictEqual(handoff.parseHandoff(bad), null, bad.slice(0, 40));
+  }
+});
+
+test('the command typed is one of two programs with validated ids and a quoted prompt', () => {
+  const req = { cwd: 'C:/w', agent: 'claude', session: 'abc12345-1', resume: false, prompt: "it's \"here\"" };
+  assert.strictEqual(handoff.handoffCommand(req, 'powershell'), `claude --session-id abc12345-1 'it''s "here"'`);
+  assert.strictEqual(handoff.handoffCommand(req, 'posix'), `claude --session-id abc12345-1 'it'\\''s "here"'`);
+  assert.strictEqual(handoff.handoffCommand(req, 'cmd'), `claude --session-id abc12345-1 "it's ""here"""`);
+  assert.strictEqual(handoff.handoffCommand({ ...req, resume: true }, 'posix'), `claude --resume abc12345-1 'it'\\''s "here"'`);
+  assert.strictEqual(handoff.handoffCommand({ cwd: 'C:/w', agent: 'codex', resume: false }, 'posix'), 'codex');
+  assert.strictEqual(handoff.handoffCommand({ cwd: 'C:/w', agent: 'codex', session: 'abc12345', resume: true, prompt: 'go' }, 'powershell'), "codex resume abc12345 'go'");
+  assert.strictEqual(handoff.shellKindOf('C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe'), 'powershell');
+  assert.strictEqual(handoff.shellKindOf('C:/Program Files/PowerShell/7/pwsh.exe'), 'powershell');
+  assert.strictEqual(handoff.shellKindOf('C:\\Windows\\System32\\cmd.exe'), 'cmd');
+  assert.strictEqual(handoff.shellKindOf('/bin/zsh'), 'posix');
+  assert.strictEqual(handoff.shellKindOf(undefined), 'posix');
+});
+
+test('a parked hand-off is taken only by the window with that folder, and only while fresh', () => {
+  const pending = { cwd: 'C:\\Work\\Proj', agent: 'codex', resume: false, at: 1_000_000 };
+  assert.deepStrictEqual(handoff.pendingFor(pending, 'c:/work/proj/', 1_000_000 + 5_000), pending);
+  assert.strictEqual(handoff.pendingFor(pending, 'C:/Work/Other', 1_000_000 + 5_000), null);
+  assert.strictEqual(handoff.pendingFor(pending, 'C:/Work/Proj', 1_000_000 + handoff.PENDING_HANDOFF_MS + 1), null);
+  assert.strictEqual(handoff.pendingFor(undefined, 'C:/Work/Proj'), null);
+  assert.strictEqual(handoff.pendingFor(pending, undefined, 1_000_000), null);
+});
