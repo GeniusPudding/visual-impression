@@ -4,6 +4,24 @@ All notable changes to Visual Impression. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project
 follows [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.3] - 2026-10-25
+
+### Fixed
+
+- A plain terminal no longer comes back twice in the index. Records were
+  keyed by pid plus the shell path, which VS Code reports for a terminal it
+  was asked to create and not for one it revived after a reload, so every
+  reload opened a second record for the same shell. The key is the pid
+  alone; a record under the old key is adopted on the next scan, and a key
+  that last belonged to a terminal closed over a week ago is moved aside
+  rather than reused.
+- The restore picker ticks the agent terminals only, the number the
+  startup prompt gave; plain shells are listed with their command but left
+  unticked, and the prompt says how many there are.
+- A shell whose recorded command is a resume -- including the first-byte
+  swallowed ones 0.3.0 typed, `laude --resume …` -- is no longer offered;
+  any command naming a conversation id is a resume and is never recorded.
+
 ## [0.3.2] - 2026-10-24
 
 ### Added

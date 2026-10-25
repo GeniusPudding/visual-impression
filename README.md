@@ -287,7 +287,8 @@ a migration.
   running right now -- two terminals on one conversation helps nobody.
 - **A shell that ran nothing is not offered.** VS Code revives those itself,
   with their directory and their scrollback. One that ran something is
-  offered, with the command.
+  listed with the command, unticked: the startup prompt counts agent
+  terminals, and Enter in the picker brings back exactly those.
 - **The scrollback does not come back.** The conversation resumes from the
   agent's own log; whatever was printed on screen is gone.
 

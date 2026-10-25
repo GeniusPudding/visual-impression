@@ -24,6 +24,8 @@ import {
   Placement,
   TabSizes,
   writeIndex,
+  keyForPid,
+  findRecord,
 } from './store';
 import { PaneProbe, autoReadVerdict, probeGroups, sameTerminals } from './layout';
 import {
@@ -265,7 +267,7 @@ async function scan(folder: string): Promise<void> {
         claimed.add(r.session);
       }
 
-      let rec = ix.terminals.find((t) => t.key === key);
+      let rec = findRecord(ix, key, pid, Date.now());
       if (!rec) {
         rec = {
           key,
@@ -428,10 +430,11 @@ function cwdOf(term: vscode.Terminal): string | undefined {
 /**
  * Keyed on pid, not name: two terminals are routinely both called "powershell",
  * and a name can be changed at any time. The pid is unique for the window's
- * lifetime, which is exactly how long a record needs to stay matched.
+ * lifetime, which is exactly how long a record needs to stay matched -- and
+ * on nothing else, see keyForPid.
  */
-function keyFor(term: vscode.Terminal, pid: number): string {
-  return `${pid}:${term.creationOptions && 'shellPath' in term.creationOptions ? term.creationOptions.shellPath ?? '' : ''}`;
+function keyFor(_term: vscode.Terminal, pid: number): string {
+  return keyForPid(pid);
 }
 
 // --------------------------------------------------------------- restore ----
@@ -485,17 +488,17 @@ async function restoreTerminals(folder: string): Promise<void> {
       label: `$(${iconFor(rec.app)}) ${title ?? rec.name}`,
       description: `${rec.app}  ·  ${ago(rec.closedAt!)}`,
       detail,
-      // Everything is pre-checked: Enter alone brings the project back, which
-      // is the whole point. A plain shell among them is harmless -- it opens
-      // in the right folder and runs nothing.
-      picked: true,
+      // The conversations are pre-checked: Enter alone brings the project back,
+      // which is the whole point, and the count the prompt gave is what Enter
+      // restores. A plain shell is listed for its command but left unticked.
+      picked: rec.app !== 'shell',
     };
   });
 
   const picked = await vscode.window.showQuickPick(items, {
     canPickMany: true,
     title: 'Restore terminals',
-    placeHolder: 'Pick the conversations to bring back',
+    placeHolder: 'Pick the conversations to bring back (plain shells are listed unticked)',
     matchOnDetail: true,
   });
   if (!picked?.length) {
@@ -646,12 +649,15 @@ async function offerRestoreOnStartup(folder: string): Promise<void> {
   if (!cfg('promptOnStartup', true)) {
     return;
   }
-  const n = restorable(readIndex(folder), await openKeysNow()).filter((t) => t.app !== 'shell').length;
+  const offered = restorable(readIndex(folder), await openKeysNow());
+  const n = offered.filter((t) => t.app !== 'shell').length;
+  const shells = offered.length - n;
   if (!n) {
     return;
   }
   const pick = await vscode.window.showInformationMessage(
-    `Visual Impression: ${n} agent terminal${n === 1 ? '' : 's'} recorded in this project.`,
+    `Visual Impression: ${n} agent terminal${n === 1 ? '' : 's'} recorded in this project` +
+      (shells ? ` (and ${shells} plain shell${shells === 1 ? '' : 's'}, unticked).` : '.'),
     'Restore…',
     'Not now',
     "Don't ask again",

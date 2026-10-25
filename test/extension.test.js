@@ -821,3 +821,59 @@ test('a hand-off may name a development line instead of a ticket, and the termin
   assert.deepStrictEqual(handoff.handoffEnv({ cwd: 'C:/w', agent: 'codex', resume: false }), {});
   assert.strictEqual(handoff.parseHandoff('cwd=x&project=bad%20id'), null);
 });
+
+// ---------------------------------------------------------- one record each --
+// Found on 2026-10-25: every window reload had doubled the plain shells, and
+// the picker ticked them alongside the agents the prompt had counted.
+
+const termRec = (over) => ({
+  key: '5320', name: 'powershell', cwd: 'C:\\work\\repo', shellPid: 5320, app: 'shell', session: null,
+  title: null, openedAt: '2026-10-20T08:00:00.000Z', lastSeen: '2026-10-20T08:00:00.000Z',
+  closedAt: null, lastCommand: null, lastCommandAt: null, ...over,
+});
+const ixWith = (...terminals) => ({ version: 1, folder: 'C:\\work\\repo', updatedAt: '', terminals });
+const NOW = Date.parse('2026-10-25T10:00:00.000Z');
+
+test('REGRESSION -- findRecord: a terminal revived after a reload keeps its record, whatever key it had', () => {
+  const ix = ixWith(termRec({ key: '5320:C:\\WINDOWS\\System32\\WindowsPowerShell\\v1.0\\powershell.exe', closedAt: '2026-10-25T09:59:00.000Z' }));
+  ix.layout = { tabs: [['5320:C:\\WINDOWS\\System32\\WindowsPowerShell\\v1.0\\powershell.exe', '9']], at: '' };
+  const rec = store.findRecord(ix, store.keyForPid(5320), 5320, NOW);
+  assert.strictEqual(rec, ix.terminals[0]);
+  assert.strictEqual(rec.key, '5320', 'renamed so the next scan finds it directly');
+  assert.deepStrictEqual(ix.layout.tabs, [['5320', '9']], 'the remembered arrangement follows the rename');
+  assert.strictEqual(ix.terminals.length, 1, 'and no twin is made');
+});
+
+test('findRecord: its own key, open or closed moments ago, is the record', () => {
+  const open = termRec({ key: '5320' });
+  assert.strictEqual(store.findRecord(ixWith(open), '5320', 5320, NOW), open);
+  const closed = termRec({ key: '5320', closedAt: '2026-10-25T09:00:00.000Z' });
+  assert.strictEqual(store.findRecord(ixWith(closed), '5320', 5320, NOW), closed);
+});
+
+test('findRecord: a pid that last belonged to a terminal closed weeks ago is a new terminal', () => {
+  const old = termRec({ key: '5320', app: 'claude', session: 'sa', closedAt: '2026-10-01T08:00:00.000Z' });
+  const ix = ixWith(old, termRec({ key: '5320:pwsh', closedAt: '2026-10-02T08:00:00.000Z' }));
+  assert.strictEqual(store.findRecord(ix, '5320', 5320, NOW), undefined);
+  assert.strictEqual(old.key, '5320#2026-10-01T08:00:00.000Z', 'its key is moved aside so the new terminal can have it');
+  assert.ok(store.restorable(ix).includes(old), 'but the conversation it ran is still offered');
+});
+
+test('REGRESSION -- isWorthRecording: a resume is never a command to type back, however it arrived', () => {
+  for (const cmd of ['claude --resume 2f987752-3676-4c07-b6ee-38a9d79559a2', 'laude --resume 2f987752-3676-4c07-b6ee-38a9d79559a2',
+    'odex resume 01a15246-40de-7f31-8d25-f3338f76fd84', 'codex resume 01a15246-40de-7f31-8d25-f3338f76fd84',
+    'claude --session-id 2f987752-3676-4c07-b6ee-38a9d79559a2 "hello"']) {
+    assert.strictEqual(store.isWorthRecording(cmd), false, cmd);
+  }
+  assert.strictEqual(store.isWorthRecording('npm test'), true);
+  assert.strictEqual(store.isWorthRecording('git log --oneline'), true);
+});
+
+test('restorable: a shell whose recorded command is a mangled resume is not offered', () => {
+  const ix = ixWith(
+    termRec({ key: '1', closedAt: '2026-10-24T08:00:00.000Z', lastCommand: 'laude --resume 2f987752-3676-4c07-b6ee-38a9d79559a2' }),
+    termRec({ key: '2', closedAt: '2026-10-24T08:00:00.000Z', lastCommand: 'npm test' }),
+    termRec({ key: '3', app: 'claude', session: 'sa', closedAt: '2026-10-24T08:00:00.000Z' }),
+  );
+  assert.deepStrictEqual(store.restorable(ix).map((t) => t.key).sort(), ['2', '3']);
+});

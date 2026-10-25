@@ -188,6 +188,60 @@ function orderForScreen(rows: { t: TerminalRecord; at: number }[]): TerminalReco
   return grouped.map((r) => r.t);
 }
 
+/**
+ * Records are keyed by the shell's pid and nothing else. Earlier builds appended
+ * the shell path, which VS Code reports for a terminal it was asked to create
+ * and not for one it revived after a reload -- so the same terminal came back
+ * under a second key, and the index grew a twin of every plain shell.
+ */
+export function keyForPid(pid: number): string {
+  return String(pid);
+}
+
+/** A week: longer than any reload, shorter than a pid is likely to come round again. */
+const RELOAD_MS = 7 * 24 * 60 * 60_000;
+
+function renameRecord(ix: WorkspaceIndex, rec: TerminalRecord, key: string): void {
+  for (const tab of ix.layout?.tabs ?? []) {
+    for (let i = 0; i < tab.length; i++) {
+      if (tab[i] === rec.key) {
+        tab[i] = key;
+      }
+    }
+  }
+  rec.key = key;
+}
+
+/**
+ * The record a terminal on screen belongs to, or undefined for a terminal the
+ * index has not met. Its own key first; failing that a record from before pids
+ * were the whole key (`pid:shell path`), renamed so the next scan finds it
+ * directly. Either way a record closed longer ago than a reload takes is
+ * somebody else's: pids come round again, and its key is moved aside so the
+ * new terminal can have it.
+ */
+export function findRecord(
+  ix: WorkspaceIndex,
+  key: string,
+  pid: number,
+  nowMs: number,
+): TerminalRecord | undefined {
+  const recent = (t: TerminalRecord): boolean =>
+    !t.closedAt || nowMs - Date.parse(t.closedAt) <= RELOAD_MS;
+  const exact = ix.terminals.find((t) => t.key === key);
+  if (exact) {
+    if (recent(exact)) {
+      return exact;
+    }
+    renameRecord(ix, exact, `${key}#${exact.closedAt}`);
+  }
+  const legacy = ix.terminals.filter((t) => t.key.startsWith(`${pid}:`) && recent(t)).pop();
+  if (legacy) {
+    renameRecord(ix, legacy, key);
+  }
+  return legacy;
+}
+
 export function restorable(
   ix: WorkspaceIndex,
   openKeys: ReadonlySet<string> = new Set(),
@@ -203,8 +257,9 @@ export function restorable(
       .filter(({ t }) => t.closedAt && !openKeys.has(t.key))
       // A shell that ran nothing has nothing to restore. VS Code revives those
       // itself, with their directory and their scrollback, and offering a
-      // fourth empty prompt alongside is noise.
-      .filter(({ t }) => t.app !== 'shell' || t.lastCommand)
+      // fourth empty prompt alongside is noise. The command is judged again
+      // here, so a record written under an older rule drops out too.
+      .filter(({ t }) => t.app !== 'shell' || (t.lastCommand && isWorthRecording(t.lastCommand)))
       .filter(({ t }) => !t.session || !live.has(t.session)),
   );
 
@@ -237,7 +292,12 @@ export function isWorthRecording(command: string): boolean {
   if (!trimmed || trimmed.length > 2000) {
     return false;
   }
-  if (/^(claude\s+(--resume|-c)|codex\s+resume)\b/i.test(trimmed)) {
+  // ...including as they arrived when PowerShell swallowed the first byte (0.3.0),
+  // and any command that names a conversation id: that is a resume, however spelt.
+  if (/^(c?laude\s+(--resume|-c)|c?odex\s+resume)\b/i.test(trimmed)) {
+    return false;
+  }
+  if (/(?:^|\s)(?:--resume|resume|--session-id)\s+[0-9a-f]{8}-[0-9a-f]{4}-/i.test(trimmed)) {
     return false;
   }
   const verb = trimmed.split(/\s+/)[0].toLowerCase();
