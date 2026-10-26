@@ -41,7 +41,8 @@ import {
 } from './handoff';
 import { invalidateProcessCache } from './procs';
 import { SHELL_READY_TIMEOUT_MS, whenReady } from './ready';
-import { invalidateRolloutCache, resolveTerminal } from './resolve';
+import { codexThreadName, invalidateRolloutCache, listRollouts, resolveTerminal, settleCodexSessions } from './resolve';
+import type { Resolved } from './resolve';
 import { getPreview, oneLine } from './preview';
 
 /** Terminals this window created, so a scan can tell them from a stale record. */
@@ -249,9 +250,9 @@ async function scan(folder: string): Promise<void> {
 
     const ix = readIndex(folder);
     const now = new Date().toISOString();
-    const claimed = new Set<string>();
     const seen = new Set<string>();
 
+    const live: { term: vscode.Terminal; pid: number; key: string; cwd: string; r: Resolved; rec: TerminalRecord | undefined }[] = [];
     for (const term of vscode.window.terminals) {
       const pid = await pidOf(term);
       if (pid === null) {
@@ -260,14 +261,31 @@ async function scan(folder: string): Promise<void> {
       const key = keyFor(term, pid);
       liveKeys.set(term, key);
       seen.add(key);
-
       const cwd = cwdOf(term) ?? folder;
-      const r = await resolveTerminal(pid, cwd, claimed);
-      if (r.session) {
-        claimed.add(r.session);
-      }
+      live.push({ term, pid, key, cwd, r: await resolveTerminal(pid, cwd), rec: findRecord(ix, key, pid, Date.now()) });
+    }
+    // Codex terminals are seated all at once: the ones that name their
+    // conversation first, then the ones still running the codex they were
+    // recorded with, and only then the rest by folder (see settleCodexSessions).
+    const seats = settleCodexSessions(
+      live
+        .filter((x) => x.r.app === 'codex')
+        .map((x) => ({
+          key: x.key,
+          cwd: x.cwd,
+          explicit: x.r.explicit ? x.r.session : null,
+          sticky: x.rec?.session && x.rec.agentPid != null && x.rec.agentPid === x.r.agentPid ? x.rec.session : null,
+        })),
+      listRollouts(),
+    );
 
-      let rec = findRecord(ix, key, pid, Date.now());
+    for (const x of live) {
+      const { term, pid, key, cwd, r } = x;
+      if (r.app === 'codex') {
+        r.session = seats.get(key) ?? null;
+        r.title = codexThreadName(r.session);
+      }
+      let rec = x.rec;
       if (!rec) {
         rec = {
           key,
@@ -302,6 +320,7 @@ async function scan(folder: string): Promise<void> {
       if (r.title) {
         rec.title = r.title;
       }
+      rec.agentPid = r.agentPid;
       const pend = pendingCommand.get(key);
       if (pend) {
         rec.lastCommand = pend.cmd;

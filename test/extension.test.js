@@ -877,3 +877,103 @@ test('restorable: a shell whose recorded command is a mangled resume is not offe
   );
   assert.deepStrictEqual(store.restorable(ix).map((t) => t.key).sort(), ['2', '3']);
 });
+
+// -------------------------------------------------------- codex seating --
+// Found on 2026-10-26: two bare `codex` terminals in one folder swapped
+// conversations between scans, and the restore put each back in the other's
+// place. The seating is settled for the whole window at once.
+
+const { settleCodexSessions } = require(path.join(OUT, 'resolve.js'));
+const { readCodexTail } = require(path.join(OUT, 'preview.js'));
+
+const SEAT_A = '01a15313-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+const SEAT_B = '01a16871-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
+const seatRows = (newerFirst) => [
+  rollout(SEAT_A, 'C:\\work\\repo', 'vscode', newerFirst ? 2000 : 1000),
+  rollout(SEAT_B, 'C:\\work\\repo', 'vscode', newerFirst ? 1000 : 2000),
+];
+
+test('settleCodexSessions: two fresh terminals take the two rollouts, newest to the first', () => {
+  const seats = settleCodexSessions(
+    [{ key: '1', cwd: 'C:\\work\\repo', explicit: null, sticky: null }, { key: '2', cwd: 'C:\\work\\repo', explicit: null, sticky: null }],
+    seatRows(true),
+  );
+  assert.deepStrictEqual([seats.get('1'), seats.get('2')], [SEAT_A, SEAT_B]);
+});
+
+test('REGRESSION -- settleCodexSessions: a terminal keeps its seat when the other rollout is written to', () => {
+  const seats = settleCodexSessions(
+    [{ key: '1', cwd: 'C:\\work\\repo', explicit: null, sticky: SEAT_A }, { key: '2', cwd: 'C:\\work\\repo', explicit: null, sticky: SEAT_B }],
+    seatRows(false), // B is now the newest; before, terminal 1 would have taken it
+  );
+  assert.deepStrictEqual([seats.get('1'), seats.get('2')], [SEAT_A, SEAT_B]);
+});
+
+test('settleCodexSessions: the command line outranks a remembered seat, which is then reseated', () => {
+  const seats = settleCodexSessions(
+    [{ key: '1', cwd: 'C:\\work\\repo', explicit: null, sticky: SEAT_B }, { key: '2', cwd: 'C:\\work\\repo', explicit: SEAT_B, sticky: null }],
+    seatRows(true),
+  );
+  assert.strictEqual(seats.get('2'), SEAT_B, 'resume <id> says so');
+  assert.strictEqual(seats.get('1'), SEAT_A, 'the other terminal takes what is left');
+});
+
+test('settleCodexSessions: nothing left to seat records nothing rather than a guess', () => {
+  const seats = settleCodexSessions(
+    [{ key: '1', cwd: 'C:\\work\\repo', explicit: SEAT_A, sticky: null }, { key: '2', cwd: 'C:\\work\\repo', explicit: null, sticky: null }],
+    [rollout(SEAT_A, 'C:\\work\\repo', 'vscode', 1000)],
+  );
+  assert.strictEqual(seats.get('2'), null);
+});
+
+// ------------------------------------------------------- codex preview --
+
+const userItem = (text) => ({ timestamp: '2026-10-25T15:44:27.000Z', type: 'response_item',
+  payload: { type: 'message', role: 'user', content: [{ type: 'input_text', text }] } });
+
+test('REGRESSION -- readCodexTail: what Codex puts in the user seat is not the prompt', () => {
+  const read = readCodexTail([
+    userItem('please fix the build'),
+    userItem('<environment_context>\n  <current_date>2026-10-26</current_date>\n</environment_context>'),
+    { type: 'event_msg', payload: { type: 'task_complete', last_agent_message: 'done' }, timestamp: '2026-10-25T16:00:00.000Z' },
+  ]);
+  assert.strictEqual(read.lastPrompt, 'please fix the build');
+  assert.strictEqual(read.lastReply, 'done');
+});
+
+test('readCodexTail: a prompt recorded as a user_message event counts too', () => {
+  const read = readCodexTail([{ type: 'event_msg', payload: { type: 'user_message', message: 'and now the tests' } }]);
+  assert.strictEqual(read.lastPrompt, 'and now the tests');
+});
+
+test('REGRESSION -- getPreview: the last prompt is found under megabytes of tool output', () => {
+  const home = tempHome();
+  withHome(home, () => {
+    const t0 = Date.now() - 3600_000;
+    const file = writeRollout(home, { named: CONV, sessionId: CONV, cwd: 'C:\\work\\repo', started: t0, modified: t0, prompt: 'the buried prompt', reply: 'old reply' });
+    const noise = JSON.stringify({ type: 'response_item', payload: { type: 'custom_tool_call_output', output: 'x'.repeat(64 * 1024) } });
+    const lines = [];
+    for (let i = 0; i < 12; i++) {
+      lines.push(noise); // ~800 KB, past the first window
+    }
+    lines.push(JSON.stringify({ type: 'event_msg', payload: { type: 'task_complete', last_agent_message: 'the newest answer' }, timestamp: new Date().toISOString() }));
+    fs.appendFileSync(file, lines.join('\n') + '\n', 'utf8');
+    invalidateRolloutCache();
+    const p = getPreview('codex', CONV, 'C:\\work\\repo');
+    assert.ok(p, 'expected a preview');
+    assert.strictEqual(p.lastPrompt, 'the buried prompt');
+    assert.strictEqual(p.lastReply, 'the newest answer');
+  });
+});
+
+// ------------------------------------------------------- shells over SSH --
+
+test('restorable: plain shells at one folder with one command are one row', () => {
+  const ix = ixWith(
+    termRec({ key: '1', closedAt: '2026-10-24T08:00:00.000Z', lastCommand: 'npm test' }),
+    termRec({ key: '2', closedAt: '2026-10-25T08:00:00.000Z', lastCommand: 'npm test' }),
+    termRec({ key: '3', closedAt: '2026-10-25T08:00:00.000Z', lastCommand: 'make' }),
+    termRec({ key: '4', cwd: '/srv/other', closedAt: '2026-10-25T08:00:00.000Z', lastCommand: 'npm test' }),
+  );
+  assert.deepStrictEqual(store.restorable(ix).map((t) => t.key).sort(), ['2', '3', '4']);
+});

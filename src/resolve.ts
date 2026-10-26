@@ -21,28 +21,118 @@ export interface Resolved {
   app: App;
   session: string | null;
   title: string | null;
+  /** The agent process itself, so a later scan can tell the same run from a new one. */
+  agentPid: number | null;
+  /** The session came from the agent's own word (its command line or its pid map), not a guess. */
+  explicit: boolean;
 }
 
-export async function resolveTerminal(
-  shellPid: number,
-  cwd: string,
-  claimed: ReadonlySet<string> = new Set(),
-): Promise<Resolved> {
+/**
+ * What runs in the terminal under `shellPid`, and the conversation when the
+ * agent states it outright. A Codex terminal that does not -- a bare `codex`
+ * -- is left with no session here: which rollout is its is settled across the
+ * whole window at once by settleCodexSessions, not terminal by terminal.
+ */
+export async function resolveTerminal(shellPid: number, cwd: string): Promise<Resolved> {
+  void cwd;
   const procs = await listProcesses();
   const kids = descendants(procs, shellPid);
 
   const claude = kids.find(isClaude);
   if (claude) {
     const m = readClaudeSession(claude.pid);
-    return { app: 'claude', session: m?.sessionId ?? fromCommandLine(claude), title: m?.name ?? null };
+    const session = m?.sessionId ?? fromCommandLine(claude);
+    return { app: 'claude', session, title: m?.name ?? null, agentPid: claude.pid, explicit: Boolean(session) };
   }
 
   const codex = kids.find(isCodex);
   if (codex) {
-    return { app: 'codex', session: resolveCodex(codex, cwd, claimed), title: null };
+    const session = fromCommandLine(codex);
+    return { app: 'codex', session, title: codexThreadName(session), agentPid: codex.pid, explicit: Boolean(session) };
   }
 
-  return { app: 'shell', session: null, title: null };
+  return { app: 'shell', session: null, title: null, agentPid: null, explicit: false };
+}
+
+export interface CodexSeat {
+  key: string;
+  cwd: string;
+  /** `codex resume <uuid>` on the command line: not up for discussion. */
+  explicit: string | null;
+  /** What this terminal was recorded as last time, while the same codex process is still in it. */
+  sticky: string | null;
+}
+
+/**
+ * Which conversation each Codex terminal in the window is driving. The ones
+ * that say so (command line) are seated first, then the ones that keep the
+ * seat they had -- a terminal's conversation does not change while the same
+ * codex is running in it -- and only then are the rest matched to the newest
+ * unclaimed rollout in their folder.
+ *
+ * Found on 2026-10-26: two bare `codex` terminals in one folder swapped
+ * conversations from scan to scan, because the first terminal in window
+ * order always took whichever rollout had been written to most recently.
+ * A restore then put each conversation back in the other one's place.
+ */
+export function settleCodexSessions(
+  seats: readonly CodexSeat[],
+  rows: readonly Rollout[],
+): Map<string, string | null> {
+  const out = new Map<string, string | null>();
+  const claimed = new Set<string>();
+  for (const s of seats) {
+    if (s.explicit) {
+      out.set(s.key, s.explicit);
+      claimed.add(s.explicit);
+    }
+  }
+  for (const s of seats) {
+    if (!out.has(s.key) && s.sticky && !claimed.has(s.sticky)) {
+      out.set(s.key, s.sticky);
+      claimed.add(s.sticky);
+    }
+  }
+  for (const s of seats) {
+    if (out.has(s.key)) {
+      continue;
+    }
+    const picked = pickCodexRollout(rows, s.cwd, claimed);
+    out.set(s.key, picked);
+    if (picked) {
+      claimed.add(picked);
+    }
+  }
+  return out;
+}
+
+/** Codex names each thread in session_index.jsonl rather than in the rollout. */
+export function codexThreadName(sessionId: string | null): string | null {
+  if (!sessionId) {
+    return null;
+  }
+  const idx = path.join(os.homedir(), '.codex', 'session_index.jsonl');
+  let raw: string;
+  try {
+    raw = fs.readFileSync(idx, 'utf8');
+  } catch {
+    return null;
+  }
+  let name: string | null = null;
+  for (const line of raw.split('\n')) {
+    if (!line.includes(sessionId)) {
+      continue;
+    }
+    try {
+      const o = JSON.parse(line) as { id?: string; thread_name?: string };
+      if (o.id === sessionId && o.thread_name) {
+        name = o.thread_name;
+      }
+    } catch {
+      /* a partially written line at the end of the file */
+    }
+  }
+  return name;
 }
 
 function isClaude(p: Proc): boolean {
@@ -196,20 +286,12 @@ function readMeta(file: string): Rollout | null {
   }
 }
 
-function resolveCodex(proc: Proc, cwd: string, claimed: ReadonlySet<string>): string | null {
-  // `codex resume <uuid>` states the answer outright.
-  const explicit = fromCommandLine(proc);
-  if (explicit) {
-    return explicit;
-  }
-  return pickCodexRollout(listRollouts(), cwd, claimed);
-}
-
 /**
  * The matching rule, kept pure so it can be tested without a live process
  * table. `source` must be exactly 'vscode': a subagent records an object
- * there, and a plain Windows Terminal tab records something else -- both
- * belong to someone other than this terminal.
+ * there. (Codex 0.16 stamps a plain Windows Terminal tab 'vscode' as well,
+ * so a tab in the same folder is not told apart by this any more; the
+ * explicit id and the seat a terminal already holds do most of the work.)
  *
  * Returns null rather than guessing. There is no process start time to lean
  * on here (VS Code does not report when a shell started), so the workspace

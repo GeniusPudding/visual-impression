@@ -10,7 +10,7 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import { App } from './store';
-import { listRollouts } from './resolve';
+import { codexThreadName, listRollouts } from './resolve';
 
 export interface Preview {
   title: string | null;
@@ -110,17 +110,25 @@ export function findCodexLog(sessionId: string): string | null {
   return rows[0].file;
 }
 
-function codexPreview(sessionId: string): Preview | null {
-  const log = findCodexLog(sessionId);
-  if (!log) {
-    return null;
-  }
-  const objs = tail(log);
-  let title: string | null = codexThreadName(sessionId);
+/**
+ * Codex puts text in the user's seat that the user never typed -- the
+ * environment context, the project instructions -- as XML-ish blocks. A
+ * prompt the owner would recognise does not start with a tag.
+ */
+function isInjected(text: string): boolean {
+  return /^\s*</.test(text);
+}
+
+/** The tail windows tried, in order, until a real prompt turns up. A long
+ * agentic turn buries the last prompt under megabytes of tool output: on a
+ * 35 MB rollout seen 2026-10-26 it sat 2 MB from the end, and 512 KB found
+ * nothing, so the picker showed no prompt for the conversation. */
+const CODEX_TAIL_WINDOWS = [512 * 1024, 2 * 1024 * 1024, 8 * 1024 * 1024];
+
+export function readCodexTail(objs: Record_[]): { lastPrompt: string | null; lastReply: string | null; when: string | null } {
   let lastPrompt: string | null = null;
   let lastReply: string | null = null;
   let when: string | null = null;
-
   for (const o of objs) {
     const p = o.payload as Record<string, unknown> | undefined;
     if (!p) {
@@ -130,15 +138,45 @@ function codexPreview(sessionId: string): Preview | null {
       lastReply = p.last_agent_message;
       when = typeof o.timestamp === 'string' ? o.timestamp : when;
     }
+    if (o.type === 'event_msg' && p.type === 'user_message' && typeof p.message === 'string' && p.message.trim() && !isInjected(p.message)) {
+      lastPrompt = p.message.trim();
+    }
     if (o.type === 'response_item' && p.type === 'message') {
       const text = textOf(p.content);
-      if (p.role === 'user' && text) {
+      if (p.role === 'user' && text && !isInjected(text)) {
         lastPrompt = text;
       }
       if (p.role === 'assistant' && text && !lastReply) {
         lastReply = text;
         when = typeof o.timestamp === 'string' ? o.timestamp : when;
       }
+    }
+  }
+  return { lastPrompt, lastReply, when };
+}
+
+function codexPreview(sessionId: string): Preview | null {
+  const log = findCodexLog(sessionId);
+  if (!log) {
+    return null;
+  }
+  let size = 0;
+  try {
+    size = fs.statSync(log).size;
+  } catch {
+    return null;
+  }
+  let title: string | null = codexThreadName(sessionId);
+  let lastPrompt: string | null = null;
+  let lastReply: string | null = null;
+  let when: string | null = null;
+  for (const bytes of CODEX_TAIL_WINDOWS) {
+    const read = readCodexTail(tail(log, bytes));
+    lastPrompt = read.lastPrompt;
+    lastReply = lastReply ?? read.lastReply;
+    when = when ?? read.when;
+    if (lastPrompt || bytes >= size) {
+      break;
     }
   }
   if (!title && !lastPrompt && !lastReply) {
@@ -150,35 +188,9 @@ function codexPreview(sessionId: string): Preview | null {
   return { title, lastPrompt, lastReply, when, log };
 }
 
-/** Codex names each thread in session_index.jsonl rather than in the rollout. */
-function codexThreadName(sessionId: string): string | null {
-  const idx = path.join(os.homedir(), '.codex', 'session_index.jsonl');
-  let raw: string;
-  try {
-    raw = fs.readFileSync(idx, 'utf8');
-  } catch {
-    return null;
-  }
-  let name: string | null = null;
-  for (const line of raw.split('\n')) {
-    if (!line.includes(sessionId)) {
-      continue;
-    }
-    try {
-      const o = JSON.parse(line) as { id?: string; thread_name?: string };
-      if (o.id === sessionId && o.thread_name) {
-        name = o.thread_name;
-      }
-    } catch {
-      /* a partially written line at the end of the file */
-    }
-  }
-  return name;
-}
-
 // ------------------------------------------------------------------ shared --
 
-interface Record_ {
+export interface Record_ {
   type?: string;
   timestamp?: string;
   [k: string]: unknown;

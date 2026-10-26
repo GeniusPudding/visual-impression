@@ -29,6 +29,8 @@ export interface TerminalRecord {
   /** The last command run here, for a terminal that is not running an agent. */
   lastCommand: string | null;
   lastCommandAt: string | null;
+  /** The agent process last seen in it; the same pid means the same conversation. */
+  agentPid?: number | null;
 }
 
 /** The arrangement of the panes, as last read off the screen. */
@@ -266,16 +268,23 @@ export function restorable(
   // One row per conversation. Records are keyed by pid, so every reopen of
   // the window writes the same conversation again under a new key; the newest
   // is the one to offer, and offering the others would put several terminals
-  // on one conversation.
+  // on one conversation. A plain shell is one row per folder and command for
+  // the same reason: over SSH every restart of the remote server leaves a
+  // fresh record of the same shell.
   const seen = new Set<string>();
   return rows.filter((t) => {
-    if (!t.session) {
+    const key = t.session
+      ? `s:${t.session}`
+      : t.app === 'shell'
+        ? `p:${(t.cwd || '').replace(/[\\/]+$/, '').toLowerCase()}|${(t.lastCommand || '').trim()}`
+        : null;
+    if (!key) {
       return true;
     }
-    if (seen.has(t.session)) {
+    if (seen.has(key)) {
       return false;
     }
-    seen.add(t.session);
+    seen.add(key);
     return true;
   });
 }

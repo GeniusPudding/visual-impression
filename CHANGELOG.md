@@ -4,6 +4,28 @@ All notable changes to Visual Impression. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project
 follows [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.4] - 2026-10-26
+
+### Fixed
+
+- Two bare `codex` terminals in one folder no longer swap conversations
+  from scan to scan. Each terminal keeps the conversation it was recorded
+  with while the same codex process runs in it; `codex resume <id>` on the
+  command line always wins; only a terminal with neither is matched to the
+  newest unclaimed rollout in its folder, and the whole window is seated in
+  one pass so a claim cannot be stolen by a later terminal.
+- The picker shows the last prompt of a long Codex conversation again. On a
+  35 MB rollout the last prompt sat 2 MB from the end, past the 512 KB the
+  preview read, and Codex's own `<environment_context>` blocks in the
+  user's seat were taken for prompts. The tail read grows to 8 MB until a
+  prompt the owner typed turns up, and tagged blocks are skipped.
+- A Codex record carries the thread's name (from session_index.jsonl) as
+  its title, so the picker and the restored terminal are named like a
+  Claude one instead of `powershell`.
+- Plain shells at the same folder with the same last command are one row,
+  which is what a remote server restart under Remote SSH otherwise piles
+  up.
+
 ## [0.3.3] - 2026-10-25
 
 ### Fixed

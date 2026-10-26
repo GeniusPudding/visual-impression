@@ -281,6 +281,13 @@ a migration.
   from the command palette merges another terminal into the active tab, and
   multi-selecting tabs in the terminal list offers **Join Terminals** on the
   right-click menu. Relative pane sizes cannot be set by an extension at all.
+- **Two bare `codex` terminals in one folder** cannot be told apart from
+  outside: Codex writes nothing that names the terminal. Each is matched to
+  the newest rollout in the folder not yet claimed, in window order, and
+  then keeps that seat for as long as the same codex process runs in it --
+  so the pair cannot swap from scan to scan, but the very first guess can
+  still be the wrong way round. A terminal opened with `codex resume <id>`,
+  which is every one this extension restores, is never guessed.
 - **A conversation is offered once.** Records are keyed by shell pid, so
   every reopen of the window writes the same conversation again under a new
   key. The picker shows the newest of them and hides a conversation that is
