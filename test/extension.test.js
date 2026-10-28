@@ -977,3 +977,56 @@ test('restorable: plain shells at one folder with one command are one row', () =
   );
   assert.deepStrictEqual(store.restorable(ix).map((t) => t.key).sort(), ['2', '3', '4']);
 });
+
+// ------------------------------------------------------------------ focus --
+
+const { parseFocus, pickTerminalKey, focusPending, PENDING_FOCUS_MS } = require(path.join(OUT, 'focus.js'));
+
+test('parseFocus: a conversation, a pid or a name, with the codex prefix tolerated', () => {
+  assert.deepStrictEqual(parseFocus('session=6f1d2c3b-4a5e-4f60-9b7c-8d9e0f1a2b3c'), { session: '6f1d2c3b-4a5e-4f60-9b7c-8d9e0f1a2b3c' });
+  assert.deepStrictEqual(parseFocus('session=codex%3A01a15246-40de-7f31-8d25-f3338f76fd84&cwd=C%3A%2Fwork%2Fproj'), {
+    session: '01a15246-40de-7f31-8d25-f3338f76fd84',
+    cwd: 'C:/work/proj',
+  });
+  assert.deepStrictEqual(parseFocus('pid=4242&name=Claude%20Code'), { pid: 4242, name: 'Claude Code' });
+});
+
+test('parseFocus: a link that names nothing, or names it badly, is nothing', () => {
+  assert.strictEqual(parseFocus(''), null);
+  assert.strictEqual(parseFocus('cwd=C%3A%2Fwork'), null);
+  assert.strictEqual(parseFocus('session=not%20an%20id%21'), null);
+  assert.strictEqual(parseFocus('pid=abc'), null);
+  assert.strictEqual(parseFocus('name=' + encodeURIComponent('x'.repeat(81))), null);
+  assert.strictEqual(parseFocus('name=a%0Ab'), null, 'no control characters in a name');
+});
+
+test('pickTerminalKey: the conversation wins, then the pid, then a name that only one terminal carries', () => {
+  const rec = (key, over) => ({
+    key, name: 'powershell', cwd: 'C:/work', shellPid: Number(key), app: 'claude', session: null, title: null,
+    openedAt: 't', lastSeen: 't', closedAt: null, lastCommand: null, lastCommandAt: null, ...over,
+  });
+  const records = [
+    rec('100', { session: 's-one', name: 'alpha' }),
+    rec('200', { session: 's-two', name: 'beta' }),
+    rec('300', { session: 's-three', name: 'beta' }),
+    rec('400', { session: 's-gone', name: 'gone', closedAt: 't' }),
+  ];
+  const open = new Set(['100', '200', '300']);
+  assert.strictEqual(pickTerminalKey(records, open, { session: 's-two' }), '200');
+  assert.strictEqual(pickTerminalKey(records, open, { session: 's-nope', pid: 300 }), '300', 'no such conversation: the pid');
+  assert.strictEqual(pickTerminalKey(records, open, { name: 'alpha' }), '100');
+  assert.strictEqual(pickTerminalKey(records, open, { name: 'beta' }), null, 'two terminals called beta: no guess');
+  assert.strictEqual(pickTerminalKey(records, open, { session: 's-gone' }), null, 'a closed record is not a terminal to show');
+  assert.strictEqual(pickTerminalKey(records, new Set(['100']), { session: 's-two' }), null, 'recorded but not open in this window');
+});
+
+test('focusPending: fresh and for this folder (or for any), never stale', () => {
+  const now = 1000000;
+  const req = { session: 's-one', cwd: 'C:/work/proj', at: now - 1000 };
+  assert.deepStrictEqual(focusPending(req, 'C:/work/proj', now), { session: 's-one', cwd: 'C:/work/proj' });
+  assert.deepStrictEqual(focusPending(req, 'C:\\work\\proj', now), { session: 's-one', cwd: 'C:/work/proj' }, 'either separator');
+  assert.strictEqual(focusPending(req, 'C:/work/other', now), null, 'another window: not for it');
+  assert.deepStrictEqual(focusPending({ session: 's-one', at: now - 1000 }, 'C:/anything', now), { session: 's-one' }, 'no folder named: every window tries');
+  assert.strictEqual(focusPending(req, 'C:/work/proj', now + PENDING_FOCUS_MS + 1), null, 'stale');
+  assert.strictEqual(focusPending(undefined, 'C:/work/proj', now), null);
+});

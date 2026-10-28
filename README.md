@@ -79,7 +79,12 @@ worth finding an hour later -- so the count also sits in the status bar,
 `$(history) 3`, and clicking it opens the same picker. It hides itself when
 there is nothing to bring back. Missing the notification costs nothing.
 
-### Opening an agent from outside VS Code
+### Asking VS Code for a terminal from outside
+
+The extension answers two links. Both carry ids and names that must look
+like ids and names, and neither can run anything of the caller's choosing.
+
+#### Opening an agent
 
 Another program on the machine can ask for a terminal with an agent in it
 through the extension's URI:
@@ -107,6 +112,35 @@ The link cannot run anything else: it carries an agent name, ids that must
 look like ids, and a prompt. The command line is assembled by the extension
 from those, so the worst a bad link can do is start Claude Code or Codex with
 a prompt you can see. The owner's assistant hub uses this for its 接手 button.
+
+#### Bringing a conversation's terminal to the front
+
+```
+vscode://geniuspudding.visual-impression/focus?session=<conversation id>
+    [&pid=<shell pid>][&name=<terminal name>][&cwd=<folder>]
+```
+
+| Parameter | |
+|---|---|
+| `session` | the conversation: a Claude Code session id, or a Codex thread id (a `codex:` prefix is tolerated) |
+| `pid` | the terminal's shell pid, as the index keys it |
+| `name` | the terminal's name; honoured only when exactly one open terminal carries it |
+| `cwd` | the folder the terminal's window has open; lets a link that lands in the wrong window bring the right one forward |
+
+At least one of `session`, `pid` and `name` is needed; they are tried in that
+order, and the first that names an open terminal wins. A closed record is
+never an answer. If this window has the terminal it is shown and focused.
+Otherwise the request is parked for twenty seconds for the window that does,
+which takes it when it is brought forward -- and when `cwd` is given, that
+folder's window is brought forward by the request itself. A program raising
+the window by other means first (the attention strip knows the window by its
+title) lands the link in that window directly.
+
+The link can show a terminal that exists and nothing else: no command is
+typed, nothing is opened, and a link that names nothing is ignored. The
+owner's attention strip (windoalls' attenssion) sends it when a lamp for a
+VS Code conversation is clicked, so the click lands on the tab, not just the
+window.
 
 ## Settings
 

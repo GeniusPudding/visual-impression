@@ -39,6 +39,7 @@ import {
   sameFolder,
   shellKindOf,
 } from './handoff';
+import { FocusRequest, PENDING_FOCUS_KEY, PendingFocus, focusPending, parseFocus, pickTerminalKey } from './focus';
 import { invalidateProcessCache } from './procs';
 import { SHELL_READY_TIMEOUT_MS, whenReady } from './ready';
 import { codexThreadName, invalidateRolloutCache, listRollouts, resolveTerminal, settleCodexSessions } from './resolve';
@@ -59,7 +60,7 @@ export function activate(context: vscode.ExtensionContext): void {
   // folder this window does not have is parked and the folder opened.
   context.subscriptions.push(
     vscode.window.registerUriHandler({
-      handleUri: (uri) => void onHandoffUri(context, folder, uri),
+      handleUri: (uri) => void (uri.path === '/focus' ? onFocusUri(context, folder, uri) : onHandoffUri(context, folder, uri)),
     }),
   );
   if (!folder) {
@@ -90,6 +91,9 @@ export function activate(context: vscode.ExtensionContext): void {
     // one starts, or when it is brought to the front (VS Code focuses the
     // window that already has the folder rather than opening a second one).
     vscode.window.onDidChangeWindowState((st) => st.focused && takePendingHandoff(context, folder)),
+    // A focus request that landed in another window is taken by the one that
+    // holds the terminal, when it is brought forward.
+    vscode.window.onDidChangeWindowState((st) => st.focused && void takePendingFocus(context, folder)),
     vscode.window.onDidOpenTerminal(() => scheduleScan(folder, 2500)),
     vscode.window.onDidCloseTerminal((t) => onClosed(folder, t)),
     vscode.window.onDidChangeActiveTerminal(() => scheduleScan(folder, 1500)),
@@ -173,6 +177,67 @@ async function onHandoffUri(context: vscode.ExtensionContext, folder: string | u
   const pending: PendingHandoff = { ...req, at: Date.now() };
   await context.globalState.update(PENDING_HANDOFF_KEY, pending);
   await vscode.commands.executeCommand('vscode.openFolder', vscode.Uri.file(req.cwd), { forceNewWindow: true });
+}
+
+// ------------------------------------------------------------------ focus ----
+
+/**
+ * Show the terminal a `/focus` link names, if it is in this window. Otherwise
+ * the request is parked for a few seconds for the window that has it, and
+ * when the link names a folder, that folder's window is brought forward.
+ */
+async function onFocusUri(context: vscode.ExtensionContext, folder: string | undefined, uri: vscode.Uri): Promise<void> {
+  const req = parseFocus(uri.query);
+  if (!req) {
+    return; // a link that names nothing is ignored, not announced: it was not the owner's doing
+  }
+  if (folder && (await focusTerminal(folder, req))) {
+    return;
+  }
+  const pending: PendingFocus = { ...req, at: Date.now() };
+  await context.globalState.update(PENDING_FOCUS_KEY, pending);
+  if (req.cwd && !sameFolder(folder, req.cwd)) {
+    // VS Code brings forward the window that already has the folder rather than opening a second one.
+    await vscode.commands.executeCommand('vscode.openFolder', vscode.Uri.file(req.cwd), { forceNewWindow: true });
+  }
+}
+
+async function takePendingFocus(context: vscode.ExtensionContext, folder: string): Promise<void> {
+  const req = focusPending(context.globalState.get<PendingFocus>(PENDING_FOCUS_KEY), folder);
+  if (!req) {
+    return;
+  }
+  if (await focusTerminal(folder, req)) {
+    await context.globalState.update(PENDING_FOCUS_KEY, undefined);
+  }
+}
+
+/** The terminal the request means, shown and focused; false when this window has no such terminal. */
+async function focusTerminal(folder: string, req: FocusRequest): Promise<boolean> {
+  const byKey = new Map<string, vscode.Terminal>();
+  for (const t of vscode.window.terminals) {
+    const known = liveKeys.get(t);
+    if (known) {
+      byKey.set(known, t);
+      continue;
+    }
+    const pid = await pidOf(t);
+    if (pid !== null) {
+      byKey.set(keyFor(t, pid), t);
+    }
+  }
+  const key = pickTerminalKey(readIndex(folder).terminals, new Set(byKey.keys()), req);
+  let term = key ? byKey.get(key) : undefined;
+  if (!term && req.name) {
+    // A terminal the index never met (opened a moment ago) still answers to its name, when it is the only one.
+    const named = vscode.window.terminals.filter((t) => t.name === req.name);
+    term = named.length === 1 ? named[0] : undefined;
+  }
+  if (!term) {
+    return false;
+  }
+  term.show(false);
+  return true;
 }
 
 function takePendingHandoff(context: vscode.ExtensionContext, folder: string): void {

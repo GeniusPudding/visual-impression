@@ -4,6 +4,22 @@ All notable changes to Visual Impression. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project
 follows [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.0] - 2026-10-28
+
+### Added
+
+- A second URI, `vscode://geniuspudding.visual-impression/focus?session=...`
+  (or `pid=...`, or `name=...`, optionally `&cwd=...`), brings a conversation's
+  terminal to the front. Another program that knows a conversation finished
+  -- the owner's attention strip -- can raise the VS Code window itself, but
+  only this extension knows which terminal tab holds the conversation. The
+  window that receives the link shows the terminal if it has it; otherwise
+  the request is parked for twenty seconds for the window that does, which
+  takes it when it is brought forward (and, when the link names a folder,
+  that folder's window is brought forward). The link can show a terminal
+  that exists and nothing else; a name is honoured only when exactly one
+  terminal carries it.
+
 ## [0.3.4] - 2026-10-26
 
 ### Fixed
