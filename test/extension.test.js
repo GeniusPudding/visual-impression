@@ -795,6 +795,20 @@ test('after the agent, the typed line switches off every terminal mode a crashed
   // A restored conversation gets the same tail; without an id the agent's own picker opens.
   assert.strictEqual(handoff.resumeCommand('claude', 'abc12345-1', 'posix'), 'claude --resume abc12345-1' + handoff.resetAfter('posix'));
   assert.strictEqual(handoff.resumeCommand('codex', undefined, 'powershell'), 'codex resume' + handoff.resetAfter('powershell'));
+  // With shell integration the line is the agent's alone, and the reset is a command of its own,
+  // typed only after an exit that was not clean -- the unknown counts as not clean.
+  assert.strictEqual(handoff.resumeCommand('codex', 'abc12345', 'powershell', false), 'codex resume abc12345');
+  assert.strictEqual(handoff.handoffCommand({ cwd: 'C:/w', agent: 'claude', session: 'abc12345-1', resume: true }, 'posix', false), 'claude --resume abc12345-1');
+  for (const shell of ['powershell', 'cmd', 'posix']) {
+    assert.ok(handoff.resetAfter(shell).endsWith(handoff.resetCommand(shell)), shell + ': the tail is the command, joined on');
+    for (const mode of modes) {
+      assert.ok(handoff.resetCommand(shell).includes('[' + mode), `${shell} reset lacks ${mode}`);
+    }
+  }
+  assert.strictEqual(handoff.needsReset(0), false, 'a clean exit restored the terminal itself');
+  assert.strictEqual(handoff.needsReset(1), true);
+  assert.strictEqual(handoff.needsReset(130), true, 'killed');
+  assert.strictEqual(handoff.needsReset(undefined), true, 'unknown: better a harmless reset than a dead terminal');
 });
 
 test('the PowerShell and cmd tails really emit the sequences when run', { skip: process.platform !== 'win32' }, () => {

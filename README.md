@@ -265,11 +265,14 @@ that is being shared. **Visual Impression: Forget this workspace's history**
 deletes a project's file; the directory is yours to delete at any time.
 
 A restored agent terminal runs `claude --resume <id>` or
-`codex resume <id>`, followed on the same line by a terminal reset that runs
-once the agent has exited: a crashed or killed agent leaves the terminal in
-the modes it switched on (mouse and focus reporting, win32-input-mode, the
-kitty keyboard protocol), and the shell then prints every mouse move as
-`[<35;10;1M`. The hand-off line from the hub carries the same tail. A
+`codex resume <id>`, and nothing else on that line. A crashed or killed agent
+leaves the terminal in the modes it switched on (mouse and focus reporting,
+win32-input-mode, the kitty keyboard protocol), and the shell then prints
+every mouse move as `[<35;10;1M`; so when the shell integration reports the
+agent's line ending with an exit that was not clean, the extension types a
+reset into the terminal then -- and only then. A terminal without shell
+integration, where nobody hears the exit, carries the reset on the agent's
+own line instead. The hand-off line from the hub is treated the same way. A
 restored plain terminal has its last command typed into it and **not** run
 -- reopening a project must never re-run a deploy or a migration.
 

@@ -34,7 +34,10 @@ import {
   PendingHandoff,
   handoffCommand,
   handoffEnv,
+  needsReset,
   parseHandoff,
+  resetCommand,
+  ShellKind,
   pendingFor,
   resumeCommand,
   sameFolder,
@@ -259,7 +262,8 @@ function openHandoffTerminal(req: HandoffRequest): vscode.Terminal {
   });
   term.show(true);
   // Created without a shellPath, so the terminal runs the default profile, which is what env.shell names.
-  typeInto(term, handoffCommand(req, shellKindOf(vscode.env.shell)), true);
+  const shell = shellKindOf(vscode.env.shell);
+  typeAgentLine(term, (inlineReset) => handoffCommand(req, shell, inlineReset), shell);
   return term;
 }
 
@@ -280,6 +284,47 @@ function typeInto(term: vscode.Terminal, text: string, execute: boolean): void {
       term.sendText(text, execute);
     }
   });
+}
+
+/**
+ * Type the line that starts an agent. With shell integration the line is the agent's alone and
+ * the terminal reset is typed only after an exit that was not clean (a crash, a kill), which the
+ * integration reports; without it the reset rides on the line, since nobody will hear the exit.
+ */
+function typeAgentLine(term: vscode.Terminal, build: (inlineReset: boolean) => string, shell: ShellKind): void {
+  const ready = whenReady(
+    Boolean(term.shellIntegration),
+    (fire) => vscode.window.onDidChangeTerminalShellIntegration((e) => e.terminal === term && fire()),
+    SHELL_READY_TIMEOUT_MS,
+  );
+  void ready.then(() => {
+    if (term.exitStatus) {
+      return;
+    }
+    const inlineReset = !term.shellIntegration;
+    term.sendText(build(inlineReset), true);
+    if (!inlineReset) {
+      resetAfterExit(term, shell);
+    }
+  });
+}
+
+/** Once the first command in the terminal (the agent's) ends, type the reset unless it ended cleanly. */
+function resetAfterExit(term: vscode.Terminal, shell: ShellKind): void {
+  const subs: vscode.Disposable[] = [];
+  const done = (): void => subs.forEach((s) => s.dispose());
+  subs.push(
+    vscode.window.onDidEndTerminalShellExecution((e) => {
+      if (e.terminal !== term) {
+        return;
+      }
+      done();
+      if (needsReset(e.exitCode) && !term.exitStatus) {
+        term.sendText(resetCommand(shell), true);
+      }
+    }),
+    vscode.window.onDidCloseTerminal((t) => t === term && done()),
+  );
 }
 
 function cfg<T>(key: string, fallback: T): T {
@@ -688,9 +733,10 @@ function openFor(
       ...(splitOf ? { location: { parentTerminal: splitOf } } : {}),
     });
   term.show(false);
-  const cmd = rec.app === 'claude' || rec.app === 'codex' ? resumeCommand(rec.app, rec.session ?? undefined, shellKindOf(vscode.env.shell)) : null;
-  if (cmd) {
-    typeInto(term, cmd, true);
+  if (rec.app === 'claude' || rec.app === 'codex') {
+    const app = rec.app;
+    const shell = shellKindOf(vscode.env.shell);
+    typeAgentLine(term, (inlineReset) => resumeCommand(app, rec.session ?? undefined, shell, inlineReset), shell);
     return term;
   }
   // A plain shell: put the command back on the prompt WITHOUT running it.

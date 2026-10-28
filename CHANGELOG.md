@@ -11,10 +11,14 @@ follows [semantic versioning](https://semver.org/spec/v2.0.0.html).
 - A conversation's terminal no longer stays unusable after its agent crashes
   or is killed. Claude Code switches on mouse and focus reporting (and more)
   and switches them off only on a clean exit; after any other exit the shell
-  that inherits the terminal prints every mouse move as `[<35;10;1M`. The
-  resume line a restore types, and the hand-off line from the hub, now end
-  with a reset that the shell runs once the agent is gone, for PowerShell,
-  cmd and POSIX shells alike.
+  that inherits the terminal prints every mouse move as `[<35;10;1M`. When
+  the shell integration reports the agent's line ending with an exit that
+  was not clean, a reset is typed into the terminal then, for PowerShell,
+  cmd and POSIX shells alike; a terminal without shell integration carries
+  the reset on the agent's own line. The resume line a restore types and the
+  hand-off line from the hub are otherwise the agent's command alone -- a
+  first cut had the reset on every line, which made `codex resume <id>` a
+  screenful and the terminal's sticky scroll show it over the agent.
 
 ### Added
 
