@@ -36,6 +36,7 @@ import {
   handoffEnv,
   parseHandoff,
   pendingFor,
+  resumeCommand,
   sameFolder,
   shellKindOf,
 } from './handoff';
@@ -687,7 +688,7 @@ function openFor(
       ...(splitOf ? { location: { parentTerminal: splitOf } } : {}),
     });
   term.show(false);
-  const cmd = resumeCommand(rec);
+  const cmd = rec.app === 'claude' || rec.app === 'codex' ? resumeCommand(rec.app, rec.session ?? undefined, shellKindOf(vscode.env.shell)) : null;
   if (cmd) {
     typeInto(term, cmd, true);
     return term;
@@ -698,21 +699,6 @@ function openFor(
     typeInto(term, rec.lastCommand, false);
   }
   return term;
-}
-
-/**
- * With a session id the conversation reopens directly. Without one, the agent
- * is still started -- its own picker is the right fallback, and is what the
- * terminal-side tool does too.
- */
-function resumeCommand(rec: TerminalRecord): string | null {
-  if (rec.app === 'claude') {
-    return rec.session ? `claude --resume ${rec.session}` : 'claude --resume';
-  }
-  if (rec.app === 'codex') {
-    return rec.session ? `codex resume ${rec.session}` : 'codex resume';
-  }
-  return null;
 }
 
 function noSessionNote(app: App): string {

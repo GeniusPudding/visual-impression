@@ -112,7 +112,41 @@ export function handoffCommand(req: HandoffRequest, shell: ShellKind): string {
   if (req.prompt) {
     parts.push(quoteFor(req.prompt, shell));
   }
-  return parts.join(' ');
+  return parts.join(' ') + resetAfter(shell);
+}
+
+/**
+ * The line that reopens a conversation in a restored terminal. Without a session id the agent
+ * is still started -- its own picker is the right fallback, and is what the terminal-side tool
+ * does too.
+ */
+export function resumeCommand(app: 'claude' | 'codex', session: string | undefined, shell: ShellKind): string {
+  const line = app === 'claude' ? `claude --resume${session ? ' ' + session : ''}` : `codex resume${session ? ' ' + session : ''}`;
+  return line + resetAfter(shell);
+}
+
+// Terminal modes a full-screen agent switches on and a shell cannot live with: the alternate
+// screen, mouse and focus reporting (X10, button, any-motion, focus, SGR, urxvt), win32-input-mode,
+// bracketed paste, the kitty keyboard protocol; the cursor is shown again last. Each is harmless
+// when it was never on.
+const MODES_OFF = ['?1049l', '?1000l', '?1002l', '?1003l', '?1004l', '?1006l', '?1015l', '?9001l', '?2004l', '<u', '?25h'];
+
+/**
+ * What the shell runs once the agent has exited, appended to the agent's own command line. The
+ * agent restores the terminal itself only on a clean exit; after a crash or a kill the shell that
+ * takes the terminal over prints every mouse move as `[<35;10;1M`, and the only party left to
+ * switch those modes off is the line that started the agent.
+ */
+export function resetAfter(shell: ShellKind): string {
+  if (shell === 'powershell') {
+    // In a double-quoted PowerShell string `$e[` is the variable followed by a bracket, not an index.
+    return `; $e=[char]27; [Console]::Write("${MODES_OFF.map((m) => '$e[' + m).join('')}")`;
+  }
+  if (shell === 'cmd') {
+    // Double-quoted for cmd, where a bare `<` (in the kitty pop) would be a redirection.
+    return ` & powershell -NoProfile -Command "[Console]::Write(${MODES_OFF.map((m) => `[char]27+'[${m}'`).join('+')})"`;
+  }
+  return `; printf '${MODES_OFF.map((m) => '\\033[' + m).join('')}'`;
 }
 
 /** Which quoting a shell wants, from its executable path. */

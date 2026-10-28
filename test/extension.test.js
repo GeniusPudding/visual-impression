@@ -763,17 +763,53 @@ test('a hand-off link names an agent, ids and a prompt, and nothing else gets th
 
 test('the command typed is one of two programs with validated ids and a quoted prompt', () => {
   const req = { cwd: 'C:/w', agent: 'claude', session: 'abc12345-1', resume: false, prompt: "it's \"here\"" };
-  assert.strictEqual(handoff.handoffCommand(req, 'powershell'), `claude --session-id abc12345-1 'it''s "here"'`);
-  assert.strictEqual(handoff.handoffCommand(req, 'posix'), `claude --session-id abc12345-1 'it'\\''s "here"'`);
-  assert.strictEqual(handoff.handoffCommand(req, 'cmd'), `claude --session-id abc12345-1 "it's ""here"""`);
-  assert.strictEqual(handoff.handoffCommand({ ...req, resume: true }, 'posix'), `claude --resume abc12345-1 'it'\\''s "here"'`);
-  assert.strictEqual(handoff.handoffCommand({ cwd: 'C:/w', agent: 'codex', resume: false }, 'posix'), 'codex');
-  assert.strictEqual(handoff.handoffCommand({ cwd: 'C:/w', agent: 'codex', session: 'abc12345', resume: true, prompt: 'go' }, 'powershell'), "codex resume abc12345 'go'");
+  // The agent's own line comes first; what follows it is the terminal reset, tested on its own below.
+  const agentLine = (cmd, shell) => cmd.slice(0, cmd.length - handoff.resetAfter(shell).length);
+  const typed = (r, shell) => {
+    const cmd = handoff.handoffCommand(r, shell);
+    assert.ok(cmd.endsWith(handoff.resetAfter(shell)), shell + ': ' + cmd);
+    return agentLine(cmd, shell);
+  };
+  assert.strictEqual(typed(req, 'powershell'), `claude --session-id abc12345-1 'it''s "here"'`);
+  assert.strictEqual(typed(req, 'posix'), `claude --session-id abc12345-1 'it'\\''s "here"'`);
+  assert.strictEqual(typed(req, 'cmd'), `claude --session-id abc12345-1 "it's ""here"""`);
+  assert.strictEqual(typed({ ...req, resume: true }, 'posix'), `claude --resume abc12345-1 'it'\\''s "here"'`);
+  assert.strictEqual(typed({ cwd: 'C:/w', agent: 'codex', resume: false }, 'posix'), 'codex');
+  assert.strictEqual(typed({ cwd: 'C:/w', agent: 'codex', session: 'abc12345', resume: true, prompt: 'go' }, 'powershell'), "codex resume abc12345 'go'");
   assert.strictEqual(handoff.shellKindOf('C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe'), 'powershell');
   assert.strictEqual(handoff.shellKindOf('C:/Program Files/PowerShell/7/pwsh.exe'), 'powershell');
   assert.strictEqual(handoff.shellKindOf('C:\\Windows\\System32\\cmd.exe'), 'cmd');
   assert.strictEqual(handoff.shellKindOf('/bin/zsh'), 'posix');
   assert.strictEqual(handoff.shellKindOf(undefined), 'posix');
+});
+
+test('after the agent, the typed line switches off every terminal mode a crashed agent leaves on', () => {
+  const modes = ['?1049l', '?1000l', '?1002l', '?1003l', '?1004l', '?1006l', '?1015l', '?9001l', '?2004l', '<u', '?25h'];
+  for (const shell of ['powershell', 'cmd', 'posix']) {
+    const tail = handoff.resetAfter(shell);
+    for (const mode of modes) {
+      assert.ok(tail.includes('[' + mode), `${shell} lacks ${mode}: ${tail}`);
+    }
+    assert.ok(!tail.includes('\u001b'), `${shell}: the escape byte is spelt out, never typed raw`);
+  }
+  // A restored conversation gets the same tail; without an id the agent's own picker opens.
+  assert.strictEqual(handoff.resumeCommand('claude', 'abc12345-1', 'posix'), 'claude --resume abc12345-1' + handoff.resetAfter('posix'));
+  assert.strictEqual(handoff.resumeCommand('codex', undefined, 'powershell'), 'codex resume' + handoff.resetAfter('powershell'));
+});
+
+test('the PowerShell and cmd tails really emit the sequences when run', { skip: process.platform !== 'win32' }, () => {
+  const { spawnSync } = require('node:child_process');
+  // The tail follows the agent's command; here a plain `echo` stands in for it.
+  const ps = spawnSync('powershell.exe', ['-NoProfile', '-Command', 'echo agent' + handoff.resetAfter('powershell')], { encoding: 'latin1' });
+  assert.strictEqual(ps.status, 0, ps.stderr);
+  assert.ok(ps.stdout.includes('\u001b[?1000l') && ps.stdout.includes('\u001b[<u'), JSON.stringify(ps.stdout));
+  // Typed at a cmd prompt the line is parsed by cmd alone; a batch file is the same parse, where a
+  // spawn argument would be re-quoted by node first and read differently.
+  const batch = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'vi-reset-')), 'typed.cmd');
+  fs.writeFileSync(batch, '@echo agent' + handoff.resetAfter('cmd') + '\r\n');
+  const cmd = spawnSync('cmd.exe', ['/d', '/c', batch], { encoding: 'latin1' });
+  assert.strictEqual(cmd.status, 0, cmd.stderr);
+  assert.ok(cmd.stdout.includes('\u001b[?1000l') && cmd.stdout.includes('\u001b[?25h'), JSON.stringify(cmd.stdout));
 });
 
 test('a parked hand-off is taken only by the window with that folder, and only while fresh', () => {

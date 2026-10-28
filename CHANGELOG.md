@@ -6,6 +6,16 @@ follows [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [0.4.0] - 2026-10-28
 
+### Fixed
+
+- A conversation's terminal no longer stays unusable after its agent crashes
+  or is killed. Claude Code switches on mouse and focus reporting (and more)
+  and switches them off only on a clean exit; after any other exit the shell
+  that inherits the terminal prints every mouse move as `[<35;10;1M`. The
+  resume line a restore types, and the hand-off line from the hub, now end
+  with a reset that the shell runs once the agent is gone, for PowerShell,
+  cmd and POSIX shells alike.
+
 ### Added
 
 - A second URI, `vscode://geniuspudding.visual-impression/focus?session=...`
