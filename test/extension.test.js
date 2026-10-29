@@ -1108,7 +1108,13 @@ test('focusPending: fresh and for this folder (or for any), never stale', () => 
   const now = 1000000;
   const req = { session: 's-one', cwd: 'C:/work/proj', at: now - 1000 };
   assert.deepStrictEqual(focusPending(req, 'C:/work/proj', now), { session: 's-one', cwd: 'C:/work/proj' });
-  assert.deepStrictEqual(focusPending(req, 'C:\\work\\proj', now), { session: 's-one', cwd: 'C:/work/proj' }, 'either separator');
+  // Either separator names one folder on Windows only; elsewhere a backslash is a character in the
+  // name (this assertion ran unconditionally and failed on the Linux and macOS CI runners, 2026-10-29).
+  if (process.platform === 'win32') {
+    assert.deepStrictEqual(focusPending(req, 'C:\\work\\proj', now), { session: 's-one', cwd: 'C:/work/proj' }, 'either separator');
+  } else {
+    assert.strictEqual(focusPending(req, 'C:\\work\\proj', now), null, 'a backslash is not a separator off Windows');
+  }
   assert.strictEqual(focusPending(req, 'C:/work/other', now), null, 'another window: not for it');
   assert.deepStrictEqual(focusPending({ session: 's-one', at: now - 1000 }, 'C:/anything', now), { session: 's-one' }, 'no folder named: every window tries');
   assert.strictEqual(focusPending(req, 'C:/work/proj', now + PENDING_FOCUS_MS + 1), null, 'stale');
