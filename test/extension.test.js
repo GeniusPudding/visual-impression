@@ -13,7 +13,7 @@ const os = require('os');
 const path = require('path');
 
 const OUT = path.join(__dirname, '..', 'out');
-const { descendants, parsePs } = require(path.join(OUT, 'procs.js'));
+const { descendants, parsePs, readProcTable } = require(path.join(OUT, 'procs.js'));
 const { pickCodexRollout, listRollouts, invalidateRolloutCache, normalisePath } = require(path.join(OUT, 'resolve.js'));
 const { findCodexLog, getPreview, oneLine } = require(path.join(OUT, 'preview.js'));
 const store = require(path.join(OUT, 'store.js'));
@@ -826,13 +826,47 @@ test('the PowerShell and cmd tails really emit the sequences when run', { skip: 
   assert.ok(cmd.stdout.includes('\u001b[?1000l') && cmd.stdout.includes('\u001b[?25h'), JSON.stringify(cmd.stdout));
 });
 
+// Folders are compared the way the platform compares them: on Windows either
+// separator and any case; elsewhere a backslash is a character and Proj is not
+// proj. Written per platform -- the Windows-only spelling failed on Linux,
+// where the code was right and the test was not (2026-10-29).
 test('a parked hand-off is taken only by the window with that folder, and only while fresh', () => {
-  const pending = { cwd: 'C:\\Work\\Proj', agent: 'codex', resume: false, at: 1_000_000 };
-  assert.deepStrictEqual(handoff.pendingFor(pending, 'c:/work/proj/', 1_000_000 + 5_000), pending);
-  assert.strictEqual(handoff.pendingFor(pending, 'C:/Work/Other', 1_000_000 + 5_000), null);
-  assert.strictEqual(handoff.pendingFor(pending, 'C:/Work/Proj', 1_000_000 + handoff.PENDING_HANDOFF_MS + 1), null);
-  assert.strictEqual(handoff.pendingFor(undefined, 'C:/Work/Proj'), null);
+  const win = process.platform === 'win32';
+  const proj = win ? 'C:\\Work\\Proj' : '/home/me/Work/Proj';
+  const pending = { cwd: proj, agent: 'codex', resume: false, at: 1_000_000 };
+  const same = win ? 'c:/work/proj/' : '/home/me/Work/Proj/';
+  assert.deepStrictEqual(handoff.pendingFor(pending, same, 1_000_000 + 5_000), pending);
+  assert.strictEqual(handoff.pendingFor(pending, win ? 'C:/Work/Other' : '/home/me/Work/Other', 1_000_000 + 5_000), null);
+  if (!win) {
+    assert.strictEqual(handoff.pendingFor(pending, '/home/me/work/proj', 1_000_000 + 5_000), null, 'case matters off Windows');
+  }
+  assert.strictEqual(handoff.pendingFor(pending, proj, 1_000_000 + handoff.PENDING_HANDOFF_MS + 1), null);
+  assert.strictEqual(handoff.pendingFor(undefined, proj), null);
   assert.strictEqual(handoff.pendingFor(pending, undefined, 1_000_000), null);
+});
+
+// Linux reads /proc, not ps: procps ps prints '?' for every byte it cannot show
+// in the current locale, and a Chinese prompt on an agent's command line came
+// back mangled on a machine whose locale was not UTF-8 (2026-10-29).
+test('readProcTable: argv comes back in its own bytes, ppid survives a command name with ") " in it', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'vi-proc-'));
+  try {
+    const put = (pid, stat, argv) => {
+      fs.mkdirSync(path.join(root, String(pid)));
+      fs.writeFileSync(path.join(root, String(pid), 'stat'), stat);
+      fs.writeFileSync(path.join(root, String(pid), 'cmdline'), Buffer.from(argv.map((a) => a + '\0').join(''), 'utf8'));
+    };
+    put(100, '100 (bash) S 1 100 100 0', ['/bin/bash']);
+    put(200, '200 (we) ird) S 100 200 100 0', ['/usr/bin/node', 'cli.js', '請先完整閱讀交接摘要 許功蓋']);
+    put(300, '300 (kworker/0:1) I 2 0 0 0', []);
+    fs.mkdirSync(path.join(root, 'self'));
+    const procs = readProcTable(root).sort((a, b) => a.pid - b.pid);
+    assert.deepStrictEqual(procs.map((p) => [p.pid, p.ppid, p.name]), [[100, 1, 'bash'], [200, 100, 'node']]);
+    assert.strictEqual(procs[1].commandLine, '/usr/bin/node cli.js 請先完整閱讀交接摘要 許功蓋');
+    assert.deepStrictEqual(readProcTable(path.join(root, 'absent')), []);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
 });
 
 // ---------------------------------------------------------- shell ready ----

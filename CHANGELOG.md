@@ -4,6 +4,19 @@ All notable changes to Visual Impression. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project
 follows [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.1] - 2026-10-29
+
+### Fixed
+
+- On Linux the process table is read from `/proc` rather than `ps`. procps
+  `ps` prints every byte it cannot show in the current locale as `?`, so
+  under a non-UTF-8 locale an agent started with a Chinese prompt was
+  recorded with a mangled command line. `ps` remains the fallback where
+  there is no `/proc` (macOS).
+- The parked hand-off test spelt its folders the Windows way and failed on
+  Linux, where the comparison is rightly case-sensitive; it now checks each
+  platform's own rule.
+
 ## [0.4.0] - 2026-10-28
 
 ### Fixed

@@ -6,6 +6,8 @@
 // from inside, the shell pid is unambiguous and the walk is short.
 
 import { execFile } from 'child_process';
+import * as fs from 'fs';
+import * as path from 'path';
 
 export interface Proc {
   pid: number;
@@ -37,6 +39,16 @@ export async function listProcesses(maxAgeMs = 4000): Promise<Proc[]> {
  * starting, not the query.
  */
 async function listPosix(): Promise<Proc[]> {
+  // Linux: read /proc directly. procps `ps` replaces every byte it cannot
+  // print in the current locale with '?', so under a non-UTF-8 locale a
+  // command line carrying Chinese -- `claude "請先讀…"` -- came back mangled.
+  // /proc/<pid>/cmdline is the argv itself, in the bytes it was given.
+  if (process.platform === 'linux') {
+    const procs = readProcTable('/proc');
+    if (procs.length) {
+      return procs;
+    }
+  }
   // -ww because BSD ps truncates the command line to the terminal width, and
   // the end of that line is exactly what is being read: `codex resume <uuid>`.
   let out = await run('ps', ['-ax', '-ww', '-o', 'pid=,ppid=,args=']);
@@ -46,6 +58,48 @@ async function listPosix(): Promise<Proc[]> {
     out = await run('ps', ['-ax', '-o', 'pid=,ppid=,args=']);
   }
   return parsePs(out);
+}
+
+/**
+ * The process table from a /proc tree: pid from the directory name, ppid from
+ * `stat` (the field after the command name, which is parenthesised and may
+ * itself hold spaces or parentheses, so the last ')' is the anchor), the
+ * command line from `cmdline` (NUL-separated argv, decoded as UTF-8). Kernel
+ * threads have an empty cmdline and are skipped, as `ps` does. A process that
+ * exits between the listing and the read is skipped too. `root` is a
+ * parameter so a fixture tree can stand in for the real one.
+ */
+export function readProcTable(root: string): Proc[] {
+  let entries: string[];
+  try {
+    entries = fs.readdirSync(root);
+  } catch {
+    return [];
+  }
+  const procs: Proc[] = [];
+  for (const entry of entries) {
+    if (!/^\d+$/.test(entry)) {
+      continue;
+    }
+    try {
+      const stat = fs.readFileSync(path.join(root, entry, 'stat'), 'utf8');
+      const after = stat.slice(stat.lastIndexOf(')') + 2).split(' ');
+      const ppid = Number(after[1]);
+      const argv = fs
+        .readFileSync(path.join(root, entry, 'cmdline'))
+        .toString('utf8')
+        .split('\0')
+        .filter((a) => a.length);
+      if (!argv.length || !Number.isFinite(ppid)) {
+        continue;
+      }
+      const commandLine = argv.join(' ');
+      procs.push({ pid: Number(entry), ppid, name: argv0Name(commandLine), commandLine });
+    } catch {
+      /* gone between the listing and the read */
+    }
+  }
+  return procs;
 }
 
 /**
