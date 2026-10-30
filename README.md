@@ -333,6 +333,11 @@ restored plain terminal has its last command typed into it and **not** run
   every reopen of the window writes the same conversation again under a new
   key. The picker shows the newest of them and hides a conversation that is
   running right now -- two terminals on one conversation helps nobody.
+- **A pid is matched together with when its shell started.** A host that
+  reboots hands the same small pids out again; the process start (`/proc`
+  starttime plus boot time on Linux, `CreationDate` on Windows) keeps a new
+  shell from inheriting the conversation an earlier shell with that pid ran.
+  macOS `ps` is not asked for it, so there a pid still stands alone.
 - **A shell that ran nothing is not offered.** VS Code revives those itself,
   with their directory and their scrollback. One that ran something is
   listed with the command, unticked: the startup prompt counts agent

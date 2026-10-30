@@ -869,6 +869,28 @@ test('readProcTable: argv comes back in its own bytes, ppid survives a command n
   }
 });
 
+test('readProcTable: a process carries its start, so a pid handed out again after a reboot reads as another process', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'vi-proc-'));
+  try {
+    // stat: pid (comm) state ppid pgrp session tty tpgid flags minflt cminflt
+    // majflt cmajflt utime stime cutime cstime priority nice threads itreal starttime
+    const stat = (pid, ppid, start) => `${pid} (bash) S ${ppid} ${pid} ${pid} 34816 ${pid} 4194304 1 0 0 0 0 0 0 0 20 0 1 0 ${start} 9 9`;
+    const boot = (btime) => fs.writeFileSync(path.join(root, 'stat'), `cpu  1 2 3\nbtime ${btime}\nprocesses 9\n`);
+    fs.mkdirSync(path.join(root, '4242'));
+    fs.writeFileSync(path.join(root, '4242', 'cmdline'), '/bin/bash\0');
+    fs.writeFileSync(path.join(root, '4242', 'stat'), stat(4242, 1, 51234));
+    boot(1761800000);
+    const before = readProcTable(root)[0].started;
+    assert.strictEqual(before, '1761800000+51234');
+    boot(1761900000); // rebooted; the same pid comes up at the same tick count
+    assert.notStrictEqual(readProcTable(root)[0].started, before);
+    fs.rmSync(path.join(root, 'stat'));
+    assert.strictEqual(readProcTable(root)[0].started, '+51234', 'no boot time: the ticks alone still tell runs apart');
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
 // ---------------------------------------------------------- shell ready ----
 
 const ready = require(path.join(OUT, 'ready.js'));
@@ -933,6 +955,37 @@ test('findRecord: its own key, open or closed moments ago, is the record', () =>
   assert.strictEqual(store.findRecord(ixWith(open), '5320', 5320, NOW), open);
   const closed = termRec({ key: '5320', closedAt: '2026-10-25T09:00:00.000Z' });
   assert.strictEqual(store.findRecord(ixWith(closed), '5320', 5320, NOW), closed);
+});
+
+// A remote Linux host that rebooted handed the same small pids out again, and a
+// fresh bash took over the claude record of the shell that had that pid before,
+// so the restore list came up with plain shells ticked as conversations
+// (2026-10-30).
+test('REGRESSION -- findRecord: the same pid on a shell started at another time is a new terminal', () => {
+  const old = termRec({ key: '4242', app: 'claude', session: 'sa', shellStarted: '1761800000+51234', closedAt: '2026-10-25T09:00:00.000Z' });
+  const ix = ixWith(old);
+  assert.strictEqual(store.findRecord(ix, '4242', 4242, NOW, '1761900000+51234'), undefined);
+  assert.strictEqual(old.key, '4242#2026-10-25T09:00:00.000Z', 'its key is moved aside so the new shell can have it');
+  assert.ok(store.restorable(ix).includes(old), 'and the conversation it ran is still offered, under its own name');
+});
+
+test('findRecord: a record left open by a host that went down is closed when it is set aside', () => {
+  const old = termRec({ key: '4242', app: 'claude', shellStarted: 'a', lastSeen: '2026-10-25T08:30:00.000Z' });
+  const ix = ixWith(old);
+  assert.strictEqual(store.findRecord(ix, '4242', 4242, NOW, 'b'), undefined);
+  assert.strictEqual(old.closedAt, '2026-10-25T08:30:00.000Z', 'closed when it was last seen');
+  assert.strictEqual(old.key, '4242#2026-10-25T08:30:00.000Z');
+});
+
+test('findRecord: the same shell, or a start that one side cannot state, is still the same record', () => {
+  const same = termRec({ key: '4242', shellStarted: 'a' });
+  assert.strictEqual(store.findRecord(ixWith(same), '4242', 4242, NOW, 'a'), same);
+  const unstated = termRec({ key: '4242' });
+  assert.strictEqual(store.findRecord(ixWith(unstated), '4242', 4242, NOW, 'a'), unstated, 'a record from before starts were kept');
+  const macos = termRec({ key: '4242', shellStarted: 'a' });
+  assert.strictEqual(store.findRecord(ixWith(macos), '4242', 4242, NOW, undefined), macos, 'a table that does not say');
+  const legacy = termRec({ key: '4242:/bin/bash', shellStarted: 'a', closedAt: '2026-10-25T09:59:00.000Z' });
+  assert.strictEqual(store.findRecord(ixWith(legacy), '4242', 4242, NOW, 'b'), undefined, 'the old key form is held to it too');
 });
 
 test('findRecord: a pid that last belonged to a terminal closed weeks ago is a new terminal', () => {

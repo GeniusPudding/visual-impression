@@ -14,6 +14,12 @@ export interface Proc {
   ppid: number;
   name: string;
   commandLine: string;
+  /**
+   * When the process started, as an opaque token that differs between two
+   * processes given the same pid. Undefined where the table does not say
+   * (macOS `ps`), and then a pid has to stand on its own.
+   */
+  started?: string;
 }
 
 let cache: { at: number; procs: Proc[] } | null = null;
@@ -66,8 +72,11 @@ async function listPosix(): Promise<Proc[]> {
  * itself hold spaces or parentheses, so the last ')' is the anchor), the
  * command line from `cmdline` (NUL-separated argv, decoded as UTF-8). Kernel
  * threads have an empty cmdline and are skipped, as `ps` does. A process that
- * exits between the listing and the read is skipped too. `root` is a
- * parameter so a fixture tree can stand in for the real one.
+ * exits between the listing and the read is skipped too. The start is
+ * `stat`'s starttime (clock ticks since boot) with the boot time from the
+ * tree's own `stat` in front, so the same pid after a reboot reads as another
+ * process. `root` is a parameter so a fixture tree can stand in for the real
+ * one.
  */
 export function readProcTable(root: string): Proc[] {
   let entries: string[];
@@ -75,6 +84,12 @@ export function readProcTable(root: string): Proc[] {
     entries = fs.readdirSync(root);
   } catch {
     return [];
+  }
+  let boot = '';
+  try {
+    boot = /^btime\s+(\d+)/m.exec(fs.readFileSync(path.join(root, 'stat'), 'utf8'))?.[1] ?? '';
+  } catch {
+    /* a starttime alone still tells two runs apart, barring a coincidence */
   }
   const procs: Proc[] = [];
   for (const entry of entries) {
@@ -94,7 +109,10 @@ export function readProcTable(root: string): Proc[] {
         continue;
       }
       const commandLine = argv.join(' ');
-      procs.push({ pid: Number(entry), ppid, name: argv0Name(commandLine), commandLine });
+      // starttime is field 22; `after` begins at field 3.
+      const ticks = after[19];
+      const started = ticks && /^\d+$/.test(ticks) ? `${boot}+${ticks}` : undefined;
+      procs.push({ pid: Number(entry), ppid, name: argv0Name(commandLine), commandLine, started });
     } catch {
       /* gone between the listing and the read */
     }
@@ -145,7 +163,7 @@ async function listWindows(): Promise<Proc[]> {
   const ps =
     '[Console]::OutputEncoding = [Text.Encoding]::UTF8; ' +
     'Get-CimInstance Win32_Process | ' +
-    'Select-Object ProcessId,ParentProcessId,Name,CommandLine | ' +
+    'Select-Object ProcessId,ParentProcessId,Name,CommandLine,@{n="Started";e={if ($_.CreationDate) { $_.CreationDate.ToFileTimeUtc() }}} | ' +
     'ConvertTo-Json -Compress -Depth 2';
   const out = await run('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', ps]);
   let rows: Array<Record<string, unknown>> = [];
@@ -162,6 +180,7 @@ async function listWindows(): Promise<Proc[]> {
       ppid: typeof r.ParentProcessId === 'number' ? (r.ParentProcessId as number) : 0,
       name: typeof r.Name === 'string' ? (r.Name as string) : '',
       commandLine: typeof r.CommandLine === 'string' ? (r.CommandLine as string) : '',
+      started: typeof r.Started === 'number' ? String(r.Started) : undefined,
     }));
 }
 

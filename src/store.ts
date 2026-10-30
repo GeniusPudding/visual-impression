@@ -31,6 +31,13 @@ export interface TerminalRecord {
   lastCommandAt: string | null;
   /** The agent process last seen in it; the same pid means the same conversation. */
   agentPid?: number | null;
+  /**
+   * When the shell process started, as the process table states it. A pid is
+   * only an identity together with this: after a reboot a Linux host hands the
+   * same small pids out again, and a new bash must not inherit the agent
+   * conversation an earlier shell with that pid ran.
+   */
+  shellStarted?: string | null;
 }
 
 /** The arrangement of the panes, as last read off the screen. */
@@ -218,26 +225,35 @@ function renameRecord(ix: WorkspaceIndex, rec: TerminalRecord, key: string): voi
  * The record a terminal on screen belongs to, or undefined for a terminal the
  * index has not met. Its own key first; failing that a record from before pids
  * were the whole key (`pid:shell path`), renamed so the next scan finds it
- * directly. Either way a record closed longer ago than a reload takes is
- * somebody else's: pids come round again, and its key is moved aside so the
- * new terminal can have it.
+ * directly. A record is somebody else's -- pids come round again -- when it
+ * was closed longer ago than a reload takes, or when it knows when its shell
+ * started and the shell on screen started at another time; its key is then
+ * moved aside so the new terminal can have it. `started` is the shell's start
+ * as the process table states it, or undefined where it cannot be read.
  */
 export function findRecord(
   ix: WorkspaceIndex,
   key: string,
   pid: number,
   nowMs: number,
+  started?: string,
 ): TerminalRecord | undefined {
   const recent = (t: TerminalRecord): boolean =>
     !t.closedAt || nowMs - Date.parse(t.closedAt) <= RELOAD_MS;
+  const sameProcess = (t: TerminalRecord): boolean => !started || !t.shellStarted || t.shellStarted === started;
   const exact = ix.terminals.find((t) => t.key === key);
   if (exact) {
-    if (recent(exact)) {
+    if (recent(exact) && sameProcess(exact)) {
       return exact;
+    }
+    // A record still marked open belonged to a shell that is gone without a
+    // close being seen (the host went down): it closed when it was last seen.
+    if (!exact.closedAt) {
+      exact.closedAt = exact.lastSeen;
     }
     renameRecord(ix, exact, `${key}#${exact.closedAt}`);
   }
-  const legacy = ix.terminals.filter((t) => t.key.startsWith(`${pid}:`) && recent(t)).pop();
+  const legacy = ix.terminals.filter((t) => t.key.startsWith(`${pid}:`) && recent(t) && sameProcess(t)).pop();
   if (legacy) {
     renameRecord(ix, legacy, key);
   }

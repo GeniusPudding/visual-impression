@@ -44,7 +44,7 @@ import {
   shellKindOf,
 } from './handoff';
 import { FocusRequest, PENDING_FOCUS_KEY, PendingFocus, focusPending, parseFocus, pickTerminalKey } from './focus';
-import { invalidateProcessCache } from './procs';
+import { invalidateProcessCache, listProcesses } from './procs';
 import { SHELL_READY_TIMEOUT_MS, whenReady } from './ready';
 import { codexThreadName, invalidateRolloutCache, listRollouts, resolveTerminal, settleCodexSessions } from './resolve';
 import type { Resolved } from './resolve';
@@ -363,7 +363,15 @@ async function scan(folder: string): Promise<void> {
     const now = new Date().toISOString();
     const seen = new Set<string>();
 
-    const live: { term: vscode.Terminal; pid: number; key: string; cwd: string; r: Resolved; rec: TerminalRecord | undefined }[] = [];
+    const live: {
+      term: vscode.Terminal;
+      pid: number;
+      key: string;
+      cwd: string;
+      r: Resolved;
+      started: string | undefined;
+      rec: TerminalRecord | undefined;
+    }[] = [];
     for (const term of vscode.window.terminals) {
       const pid = await pidOf(term);
       if (pid === null) {
@@ -373,7 +381,10 @@ async function scan(folder: string): Promise<void> {
       liveKeys.set(term, key);
       seen.add(key);
       const cwd = cwdOf(term) ?? folder;
-      live.push({ term, pid, key, cwd, r: await resolveTerminal(pid, cwd), rec: findRecord(ix, key, pid, Date.now()) });
+      const r = await resolveTerminal(pid, cwd);
+      // Read after resolveTerminal, which has just filled the process cache.
+      const started = (await listProcesses()).find((p) => p.pid === pid)?.started;
+      live.push({ term, pid, key, cwd, r, started, rec: findRecord(ix, key, pid, Date.now(), started) });
     }
     // Codex terminals are seated all at once: the ones that name their
     // conversation first, then the ones still running the codex they were
@@ -391,7 +402,7 @@ async function scan(folder: string): Promise<void> {
     );
 
     for (const x of live) {
-      const { term, pid, key, cwd, r } = x;
+      const { term, pid, key, cwd, r, started } = x;
       if (r.app === 'codex') {
         r.session = seats.get(key) ?? null;
         r.title = codexThreadName(r.session);
@@ -411,8 +422,12 @@ async function scan(folder: string): Promise<void> {
           closedAt: null,
           lastCommand: null,
           lastCommandAt: null,
+          shellStarted: started ?? null,
         };
         ix.terminals.push(rec);
+      }
+      if (started) {
+        rec.shellStarted = started;
       }
       rec.name = term.name;
       rec.cwd = cwd;

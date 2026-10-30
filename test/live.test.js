@@ -36,6 +36,17 @@ test('listProcesses: reads this machine and finds this very process', async () =
   assert.match(row.name, /node/i, 'argv[0] of this process is node');
 });
 
+// The start is what keeps a reused pid from inheriting another shell's record.
+// macOS ps is not asked for it, so there a pid stands alone.
+test('listProcesses: states when this process started, the same on every read', { skip: process.platform === 'darwin' }, async () => {
+  const { row } = await findPid(process.pid);
+  assert.ok(row && row.started, 'the table must say when we started');
+  const again = await findPid(process.pid);
+  assert.strictEqual(again.row.started, row.started);
+  const parent = again.procs.find((p) => p.pid === process.ppid);
+  assert.ok(parent && parent.started && parent.started !== row.started, 'and another process reads differently');
+});
+
 test('descendants: walks from the real parent down to this process', async () => {
   const { procs } = await findPid(process.pid);
   const kids = descendants(procs, process.ppid);

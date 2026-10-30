@@ -4,6 +4,20 @@ All notable changes to Visual Impression. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project
 follows [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.2] - 2026-10-30
+
+### Fixed
+
+- Plain shells no longer come up ticked as conversations in the restore list
+  on a remote Linux host. Records are keyed by shell pid, and a host that
+  rebooted handed the same small pids out again: a fresh bash took over the
+  record of the claude terminal that had its pid before, and since a record
+  is never downgraded from an agent, it stayed a "conversation". The shell's
+  start time is now recorded beside its pid (from `/proc` on Linux, from
+  `Win32_Process` on Windows), and the same pid on a shell that started at
+  another time is a new terminal. Records written before this have no start
+  and are matched as before until they age out.
+
 ## [0.4.1] - 2026-10-29
 
 ### Fixed
