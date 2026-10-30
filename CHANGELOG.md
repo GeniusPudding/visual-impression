@@ -4,6 +4,19 @@ All notable changes to Visual Impression. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project
 follows [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- `npm run test:vscode` puts the `vscode://` link handler back when the
+  test VS Code has taken it. VS Code registers itself for `vscode://` links
+  every time it starts, the downloaded test copy included, so after a test
+  run every such link on the machine (the hub's hand-off links, the
+  attention strip's focus links) started that copy as a second VS Code,
+  which restored every window of the installed one. The handler is read
+  before the run and written back after it, on Windows; elsewhere the
+  handler is not a registry value and the test copy does not touch it.
+
 ## [0.4.2] - 2026-10-30
 
 ### Fixed

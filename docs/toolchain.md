@@ -49,7 +49,7 @@ the icon and the two setup scripts.
 | `npm run compile` | TypeScript to `out/` |
 | `npm run lint` | ESLint over `src/`, `test/` and `integration/` |
 | `npm test` | compile, then the unit tests -- no VS Code needed |
-| `npm run test:vscode` | downloads VS Code if needed and runs the integration tests in a real extension host |
+| `npm run test:vscode` | downloads VS Code if needed and runs the integration tests in a real extension host; on Windows it reads the `vscode://` link handler first and puts it back after, because the test VS Code registers itself for those links (`scripts/url-handler.mjs`) |
 | `npm run check` | lint, unit tests and integration tests: what CI runs |
 | `npm run package` | builds the `.vsix` |
 | `scripts/setup.sh`, `scripts/setup.ps1` | the above, then installs into VS Code |

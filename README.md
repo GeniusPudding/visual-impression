@@ -350,14 +350,24 @@ restored plain terminal has its last command typed into it and **not** run
 ```
 npm ci
 npm run lint
-npm test             # 54 unit tests; three of them read the real process table
-npm run test:vscode  # 4 tests in a real VS Code, downloaded on first run
+npm test             # 101 unit tests; three of them read the real process table
+npm run test:vscode  # 6 tests in a real VS Code, downloaded on first run
 npm run check        # all three, which is what CI runs
 npm run package      # builds the .vsix
 ```
 
 Press `F5` in VS Code to launch an Extension Development Host.
 `docs/toolchain.md` lists every tool and what uses it.
+
+The VS Code the integration tests download registers itself for `vscode://`
+links, as every VS Code does on starting; `npm run test:vscode` reads the
+handler before the run and puts it back after, and says so when it had to.
+Running that VS Code any other way (by hand, or through `vscode-test`
+directly) leaves the handler pointing at the test copy, and the next
+`vscode://` link starts it as a second VS Code with every window of the first
+reopened in it. On Windows the value is
+`HKCU\Software\Classes\vscode\shell\open\command`; windoalls'
+`attn doctor` reports it and `attn fix-vscode-link` repairs it.
 
 The integration tests matter more than their number suggests: they are what
 pins the two pieces of VS Code behaviour the arrangement depends on, both of
