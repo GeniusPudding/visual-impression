@@ -32,11 +32,21 @@ function Get-CodeCli {
   $null
 }
 
+# The VS Code CLI prints Node deprecation warnings on stderr. Under 'Stop',
+# Windows PowerShell 5.1 turns any redirected stderr line into a terminating
+# error, so an install that worked was reported as a failure. Judge by the exit code.
+function Invoke-Code([string[]]$Arguments) {
+  $saved = $ErrorActionPreference
+  $ErrorActionPreference = 'Continue'
+  try { & $code @Arguments 2>&1 | Out-Null } finally { $ErrorActionPreference = $saved }
+  $LASTEXITCODE
+}
+
 $code = Get-CodeCli
 if (-not $code) { Bad 'no VS Code CLI on PATH'; return }
 
 if ($Uninstall) {
-  & $code --uninstall-extension $ExtId 2>&1 | Out-Null
+  $null = Invoke-Code @('--uninstall-extension', $ExtId)
   Write-Host "Removed $ExtId. Your history in ~/.wt-tabs/vscode/ was left alone."
   return
 }
@@ -86,7 +96,7 @@ try {
   & npx --yes vsce package --no-dependencies
   $vsix = Get-ChildItem $Root -Filter '*.vsix' -File | Sort-Object LastWriteTime -Descending | Select-Object -First 1
   if (-not $vsix) { Bad 'the extension did not build'; return }
-  & $code --install-extension $vsix.FullName --force 2>&1 | Out-Null
+  if ((Invoke-Code @('--install-extension', $vsix.FullName, '--force')) -ne 0) { Bad "VS Code refused $($vsix.Name)"; return }
   Ok "installed $($vsix.Name)"
 } finally { Pop-Location }
 
