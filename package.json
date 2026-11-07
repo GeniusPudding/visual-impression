@@ -1,7 +1,7 @@
 {
   "name": "visual-impression",
   "displayName": "Visual Impression",
-  "description": "Restore the AI coding conversation that was running in each terminal, per project. Works locally and over Remote SSH.",
+  "description": "Restore the AI coding conversation that was running in each terminal, per project. Works locally, over Remote SSH and over VS Code Tunnels.",
   "version": "0.4.2",
   "publisher": "geniuspudding",
   "license": "MIT",
@@ -31,7 +31,8 @@
     "codex",
     "agent",
     "remote",
-    "ssh"
+    "ssh",
+    "tunnel"
   ],
   "activationEvents": [
     "onStartupFinished",

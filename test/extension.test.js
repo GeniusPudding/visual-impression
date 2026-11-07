@@ -1173,3 +1173,47 @@ test('focusPending: fresh and for this folder (or for any), never stale', () => 
   assert.strictEqual(focusPending(req, 'C:/work/proj', now + PENDING_FOCUS_MS + 1), null, 'stale');
   assert.strictEqual(focusPending(undefined, 'C:/work/proj', now), null);
 });
+
+// ------------------------------------------------------------ picker rows --
+
+const { choiceText } = require(path.join(OUT, 'choice.js'));
+
+function agentRec(over) {
+  return { key: 'k', name: 'powershell', app: 'codex', session: '01a16871-aaaa', title: null, cwd: 'C:/p', lastCommand: null, ...over };
+}
+
+test('REGRESSION -- picker: a conversation whose log is gone is listed unticked, not as "powershell"', () => {
+  const row = choiceText(agentRec(), null, true);
+  assert.strictEqual(row.picked, false);
+  assert.match(row.title, /^Codex conversation 01a16871/);
+  assert.match(row.detail, /not found on this machine/);
+});
+
+test('picker: an untitled conversation that still exists is ticked and named by its log', () => {
+  const preview = { title: '測試雲端容器執行主流程', lastPrompt: 'run it', lastReply: null, when: null, log: 'x' };
+  const row = choiceText(agentRec(), preview, true);
+  assert.strictEqual(row.picked, true);
+  assert.strictEqual(row.title, '測試雲端容器執行主流程');
+  assert.strictEqual(row.detail, '> run it');
+});
+
+test('picker: a conversation with no title anywhere never borrows the shell name', () => {
+  const preview = { title: null, lastPrompt: null, lastReply: null, when: null, log: 'x' };
+  for (const name of ['powershell', 'bash', 'zsh', 'pwsh', '', 'claude']) {
+    const row = choiceText(agentRec({ app: 'claude', name, session: '0d0936a0-bbbb' }), preview, true);
+    assert.strictEqual(row.title, 'Claude conversation 0d0936a0', name);
+    assert.strictEqual(row.picked, true);
+  }
+  const named = choiceText(agentRec({ name: '✳ 新手機能否裝app' }), preview, true);
+  assert.strictEqual(named.title, '✳ 新手機能否裝app');
+});
+
+test('picker: with previews turned off nothing can be judged missing, so conversations stay ticked', () => {
+  assert.strictEqual(choiceText(agentRec(), null, false).picked, true);
+});
+
+test('picker: plain shells are never ticked and show their command', () => {
+  const row = choiceText(agentRec({ app: 'shell', session: null, name: 'bash', lastCommand: 'npm run dev' }), null, true);
+  assert.strictEqual(row.picked, false);
+  assert.strictEqual(row.detail, '$ npm run dev');
+});

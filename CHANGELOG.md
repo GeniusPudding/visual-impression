@@ -8,6 +8,13 @@ follows [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- The restore picker no longer ticks rows that read as plain terminals. A
+  conversation whose transcript is gone from this machine is listed unticked
+  (`conversation not found on this machine`) instead of being resumed into an
+  empty picker, and an untitled conversation is named by its transcript or as
+  `Codex conversation 01a16871`, never by the shell's name (`powershell`).
+  The startup prompt and the status-bar count agree with what Enter restores.
+
 - `npm run test:vscode` puts the `vscode://` link handler back when the
   test VS Code has taken it. VS Code registers itself for `vscode://` links
   every time it starts, the downloaded test copy included, so after a test
@@ -16,6 +23,11 @@ follows [semantic versioning](https://semver.org/spec/v2.0.0.html).
   which restored every window of the installed one. The handler is read
   before the run and written back after it, on Windows; elsewhere the
   handler is not a registry value and the test copy does not touch it.
+
+### Documentation
+
+- Using it over a VS Code Tunnel: carrying a desktop's agent conversations
+  on to a laptop, and what the picker ticks.
 
 ## [0.4.2] - 2026-10-30
 

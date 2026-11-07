@@ -48,7 +48,8 @@ import { invalidateProcessCache, listProcesses } from './procs';
 import { SHELL_READY_TIMEOUT_MS, whenReady } from './ready';
 import { codexThreadName, invalidateRolloutCache, listRollouts, resolveTerminal, settleCodexSessions } from './resolve';
 import type { Resolved } from './resolve';
-import { getPreview, oneLine } from './preview';
+import { conversationExists, getPreview, oneLine } from './preview';
+import { choiceText } from './choice';
 
 /** Terminals this window created, so a scan can tell them from a stale record. */
 const liveKeys = new WeakMap<vscode.Terminal, string>();
@@ -516,7 +517,7 @@ function showCount(ix: WorkspaceIndex, openKeys: ReadonlySet<string>): void {
   if (!status) {
     return;
   }
-  const n = restorable(ix, openKeys).filter((t) => t.app !== 'shell').length;
+  const n = restorable(ix, openKeys).filter(wouldTick).length;
   if (!n) {
     status.hide();
     return;
@@ -620,23 +621,15 @@ async function restoreTerminals(folder: string): Promise<void> {
   const previews = cfg('showPreviews', true);
   const items: Choice[] = candidates.map((rec) => {
     const p = previews && rec.session ? getPreview(rec.app, rec.session, rec.cwd) : null;
-    const title = p?.title ?? rec.title;
-    const detail = p?.lastPrompt
-      ? '> ' + oneLine(p.lastPrompt)
-      : rec.app === 'shell' && rec.lastCommand
-        ? '$ ' + oneLine(rec.lastCommand)
-        : rec.session
-          ? ''
-          : noSessionNote(rec.app);
+    // Conversations are pre-checked so that Enter alone brings the project
+    // back; plain shells and conversations whose log is gone are not.
+    const text = choiceText(rec, p, previews);
     return {
       rec,
-      label: `$(${iconFor(rec.app)}) ${title ?? rec.name}`,
+      label: `$(${iconFor(rec.app)}) ${text.title}`,
       description: `${rec.app}  ·  ${ago(rec.closedAt!)}`,
-      detail,
-      // The conversations are pre-checked: Enter alone brings the project back,
-      // which is the whole point, and the count the prompt gave is what Enter
-      // restores. A plain shell is listed for its command but left unticked.
-      picked: rec.app !== 'shell',
+      detail: text.detail,
+      picked: text.picked,
     };
   });
 
@@ -772,6 +765,11 @@ function noSessionNote(app: App): string {
   return 'a plain shell';
 }
 
+/** Whether the picker would pre-tick this record: the counts must match what Enter restores. */
+function wouldTick(rec: TerminalRecord): boolean {
+  return rec.app !== 'shell' && (!cfg('showPreviews', true) || conversationExists(rec.app, rec.session, rec.cwd));
+}
+
 function iconFor(app: App): string {
   return app === 'shell' ? 'terminal' : 'comment-discussion';
 }
@@ -781,14 +779,14 @@ async function offerRestoreOnStartup(folder: string): Promise<void> {
     return;
   }
   const offered = restorable(readIndex(folder), await openKeysNow());
-  const n = offered.filter((t) => t.app !== 'shell').length;
+  const n = offered.filter(wouldTick).length;
   const shells = offered.length - n;
   if (!n) {
     return;
   }
   const pick = await vscode.window.showInformationMessage(
     `Visual Impression: ${n} agent terminal${n === 1 ? '' : 's'} recorded in this project` +
-      (shells ? ` (and ${shells} plain shell${shells === 1 ? '' : 's'}, unticked).` : '.'),
+      (shells ? ` (and ${shells} more listed unticked).` : '.'),
     'Restore…',
     'Not now',
     "Don't ask again",

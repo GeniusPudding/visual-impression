@@ -33,6 +33,20 @@ export function getPreview(app: App, sessionId: string, cwd: string): Preview | 
   return null;
 }
 
+/** Whether this machine still has the conversation's log, without reading it. */
+export function conversationExists(app: App, sessionId: string | null, cwd: string): boolean {
+  if (!sessionId) {
+    return true; // nothing to look for; resuming opens the agent's own picker
+  }
+  if (app === 'claude') {
+    return findClaudeLog(sessionId, cwd) !== null;
+  }
+  if (app === 'codex') {
+    return findCodexLog(sessionId) !== null;
+  }
+  return true;
+}
+
 // ------------------------------------------------------------------ claude --
 
 function findClaudeLog(sessionId: string, cwd: string): string | null {

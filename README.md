@@ -4,7 +4,7 @@
 
 Remembers which AI coding conversation was running in which terminal, per
 project, and offers them back when you reopen the folder. Windows, macOS and
-Linux, including over Remote SSH.
+Linux, including over Remote SSH and VS Code Tunnels.
 
 VS Code already restores the *shell* in a terminal. What it cannot restore is
 the conversation that was running inside it, because only the agent knows that
@@ -51,6 +51,55 @@ which half it is, if you are ever unsure.
 Requires VS Code 1.93 or newer and Node 18 or newer. `--uninstall` removes
 it; recorded history in `~/.wt-tabs/vscode/` is left alone.
 
+### Carry on from another computer, over a VS Code Tunnel
+
+The case this extension is best at: a desktop at home runs all the agents,
+and you pick the work up from a laptop elsewhere. A
+[VS Code Tunnel](https://code.visualstudio.com/docs/remote/tunnels) needs no
+SSH server, open port or VPN -- only the same GitHub (or Microsoft) account on
+both machines.
+
+On the desktop, once:
+
+```powershell
+code tunnel service install     # sign in, name the machine; starts at logon
+```
+
+On the laptop, install the **Remote - Tunnels** extension (or open
+`https://vscode.dev/tunnel/<machine>` in a browser), then
+`Remote-Tunnels: Connect to Tunnel...` and pick the desktop. The first
+connection downloads a VS Code server matching the laptop's version onto the
+desktop -- a few minutes on a slow line, instant afterwards.
+
+Then, as with Remote SSH, **install this extension on the tunnel side**: in
+the connected window open a terminal (it is a desktop shell) and run setup
+from the clone there. The Extensions panel lists it under
+`TUNNEL: <machine>`.
+
+What makes it work: the tunnel window opens the *same folder on the same
+machine*, so the extension there reads the same history file the desktop
+windows wrote. The routine is
+
+1. Before leaving, close the project's window on the desktop. Its agent
+   terminals are recorded as closed -- only closed ones are offered, so a
+   conversation can never end up running in two places at once.
+2. On the laptop, connect, open the folder, and accept `Restore…`. Every
+   conversation comes back in its own terminal, resumed by id, running on
+   the desktop.
+
+Verified with a Windows 11 desktop and a macOS laptop (VS Code 1.143,
+November 2026).
+
+## What the picker ticks
+
+Only conversations: Enter alone brings back the agents, which is the point --
+nobody remembers which agent windows a project had open. Plain shells are
+listed, with their last command, but unticked. So is a conversation whose
+transcript this machine no longer has (`conversation not found on this
+machine`): resuming it would only open the agent's empty picker. A
+conversation without a title is shown as `Claude conversation 0d0936a0` or
+by its transcript's title, never as `powershell`.
+
 ## Why an extension, and not an outside tool
 
 A tool outside the editor can watch the process tree and find the agents
@@ -71,8 +120,8 @@ pid directly, and it already knows the workspace.
 | `Visual Impression: Forget this workspace's history` | delete this project's index |
 
 When you open a project that has recorded terminals, a notification offers to
-restore them. Everything is pre-checked, so `Restore…` then Enter brings the
-project back. `Don't ask again` turns the notification off for good.
+restore them. The conversations are pre-checked, so `Restore…` then Enter brings the
+project back -- see [What the picker ticks](#what-the-picker-ticks). `Don't ask again` turns the notification off for good.
 
 A notification is gone in seconds, though, and what it announces is still
 worth finding an hour later -- so the count also sits in the status bar,
