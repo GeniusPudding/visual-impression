@@ -38,6 +38,14 @@ export interface TerminalRecord {
    * conversation an earlier shell with that pid ran.
    */
   shellStarted?: string | null;
+  /**
+   * Written by another tool for a terminal it opened outside VS Code (the
+   * assistant hub, for a conversation in its own window). Not a terminal of
+   * this window: a scan never closes it, the writer does.
+   */
+  source?: 'hub' | null;
+  /** Where it came from, in the writer's words, for the picker. */
+  origin?: string | null;
 }
 
 /** The arrangement of the panes, as last read off the screen. */

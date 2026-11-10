@@ -362,6 +362,21 @@ test('REGRESSION -- restorable: never offers a terminal that is on screen', () =
   assert.deepStrictEqual(store.restorable(ix, new Set(['5320:pwsh', '4100:pwsh'])), []);
 });
 
+// The assistant hub writes a record for a conversation it opened in its own
+// window. Open, it is a running conversation nothing may resume again; closed
+// by the hub, the picker offers it like one of ours.
+test('restorable: a record another tool wrote is offered once its writer closes it', () => {
+  const live = ixOf(
+    rec({ key: 'hub:s1', session: 's1', closedAt: null, source: 'hub', origin: '助理中樞 · 工單 T-1' }),
+    rec({ key: '77:pwsh', session: 's1', closedAt: '2026-10-20T08:00:00.000Z' }),
+  );
+  assert.deepStrictEqual(store.restorable(live).map((t) => t.key), []);
+  const closed = ixOf(
+    rec({ key: 'hub:s1', session: 's1', closedAt: '2026-10-20T09:00:00.000Z', source: 'hub', origin: '助理中樞 · 工單 T-1' }),
+  );
+  assert.deepStrictEqual(store.restorable(closed).map((t) => [t.key, t.origin]), [['hub:s1', '助理中樞 · 工單 T-1']]);
+});
+
 const REUSE = { kind: 'reuse' };
 const TAB = { kind: 'tab' };
 const splitOf = (parent) => ({ kind: 'split', parent });

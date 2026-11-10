@@ -162,6 +162,18 @@ look like ids, and a prompt. The command line is assembled by the extension
 from those, so the worst a bad link can do is start Claude Code or Codex with
 a prompt you can see. The owner's assistant hub uses this for its 接手 button.
 
+#### Terminals another tool opened
+
+A tool that starts an agent outside VS Code -- the owner's assistant hub
+opens conversations in its own terminal window -- can add them to this
+project's index itself, so that opening the folder here offers them back.
+Such a record carries `"source": "hub"`, a key that is not a pid
+(`hub:<conversation id>`) and an `origin` line shown in the picker. The
+extension never marks it closed: it is not a terminal of this window. While
+the writer leaves it open it counts as a running conversation, and nothing
+resumes it a second time; once the writer closes it, `Restore terminals`
+lists it and resumes it like any other.
+
 #### Bringing a conversation's terminal to the front
 
 ```

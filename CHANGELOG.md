@@ -6,6 +6,16 @@ follows [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- Terminals another tool opened outside VS Code can be offered back. A
+  record with `source: "hub"` in the project's index (the owner's assistant
+  hub writes one for each conversation it starts in its own workspace, under
+  a `hub:` key) is never marked closed by a scan, since it is not a VS Code
+  terminal; while it is open it counts as a running conversation, and once
+  its writer closes it the picker lists it with its `origin` and resumes it
+  like any other.
+
 ### Fixed
 
 - The restore picker no longer ticks rows that read as plain terminals. A

@@ -2,7 +2,7 @@
   "name": "visual-impression",
   "displayName": "Visual Impression",
   "description": "Restore the AI coding conversation that was running in each terminal, per project. Works locally, over Remote SSH and over VS Code Tunnels.",
-  "version": "0.4.2",
+  "version": "0.4.3",
   "publisher": "geniuspudding",
   "license": "MIT",
   "icon": "media/icon.png",

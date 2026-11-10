@@ -456,9 +456,10 @@ async function scan(folder: string): Promise<void> {
       }
     }
 
-    // Anything in the index that is not on screen has gone.
+    // Anything in the index that is not on screen has gone -- except a record
+    // another tool wrote for a terminal of its own, which only it closes.
     for (const t of ix.terminals) {
-      if (!t.closedAt && !seen.has(t.key)) {
+      if (!t.closedAt && !seen.has(t.key) && t.source !== 'hub') {
         t.closedAt = now;
       }
     }
@@ -627,7 +628,7 @@ async function restoreTerminals(folder: string): Promise<void> {
     return {
       rec,
       label: `$(${iconFor(rec.app)}) ${text.title}`,
-      description: `${rec.app}  ·  ${ago(rec.closedAt!)}`,
+      description: [rec.app, rec.origin, ago(rec.closedAt!)].filter(Boolean).join('  ·  '),
       detail: text.detail,
       picked: text.picked,
     };
@@ -987,8 +988,8 @@ async function showStatus(folder: string): Promise<void> {
 function row(t: TerminalRecord): string {
   const p = cfg('showPreviews', true) && t.session ? getPreview(t.app, t.session, t.cwd) : null;
   const title = p?.title ?? t.title ?? t.name;
-  const when = t.closedAt ? `closed ${ago(t.closedAt)}` : 'open';
-  const parts = [`- **[${t.app}]** ${title} — _${when}_`];
+  const when = t.closedAt ? `closed ${ago(t.closedAt)}` : t.source === 'hub' ? 'open elsewhere' : 'open';
+  const parts = [`- **[${t.app}]** ${title}${t.origin ? ` (${t.origin})` : ''} — _${when}_`];
   if (p?.lastPrompt) {
     parts.push(`  - › ${oneLine(p.lastPrompt, 140)}`);
   }
