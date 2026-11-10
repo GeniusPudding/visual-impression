@@ -122,10 +122,18 @@ export function handoffCommand(req: HandoffRequest, shell: ShellKind, inlineRese
 /**
  * The line that reopens a conversation in a restored terminal. Without a session id the agent
  * is still started -- its own picker is the right fallback, and is what the terminal-side tool
- * does too.
+ * does too. The Antigravity CLI has no picker flag: `agy -c` continues the newest conversation
+ * it has for the folder, which is what a terminal that never named one was most likely on.
  */
-export function resumeCommand(app: 'claude' | 'codex', session: string | undefined, shell: ShellKind, inlineReset = true): string {
-  const line = app === 'claude' ? `claude --resume${session ? ' ' + session : ''}` : `codex resume${session ? ' ' + session : ''}`;
+export function resumeCommand(app: 'claude' | 'codex' | 'agy', session: string | undefined, shell: ShellKind, inlineReset = true): string {
+  const line =
+    app === 'claude'
+      ? `claude --resume${session ? ' ' + session : ''}`
+      : app === 'codex'
+        ? `codex resume${session ? ' ' + session : ''}`
+        : session
+          ? `agy --conversation ${session}`
+          : 'agy -c';
   return line + (inlineReset ? resetAfter(shell) : '');
 }
 

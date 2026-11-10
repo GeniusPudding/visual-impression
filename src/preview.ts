@@ -10,7 +10,7 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import { App } from './store';
-import { codexThreadName, listRollouts } from './resolve';
+import { agyHome, codexThreadName, listRollouts } from './resolve';
 
 export interface Preview {
   title: string | null;
@@ -30,6 +30,9 @@ export function getPreview(app: App, sessionId: string, cwd: string): Preview | 
   if (app === 'codex') {
     return codexPreview(sessionId);
   }
+  if (app === 'agy') {
+    return agyPreview(sessionId);
+  }
   return null;
 }
 
@@ -43,6 +46,9 @@ export function conversationExists(app: App, sessionId: string | null, cwd: stri
   }
   if (app === 'codex') {
     return findCodexLog(sessionId) !== null;
+  }
+  if (app === 'agy') {
+    return findAgyConversation(sessionId) !== null;
   }
   return true;
 }
@@ -110,6 +116,48 @@ function claudePreview(sessionId: string, cwd: string): Preview | null {
     return null;
   }
   return { title, lastPrompt, lastReply, when, log };
+}
+
+// --------------------------------------------------------- antigravity cli --
+
+/** agy deletes a conversation's file when the owner deletes the conversation. */
+function findAgyConversation(sessionId: string): string | null {
+  const file = path.join(agyHome(), 'conversations', `${sessionId}.db`);
+  return fs.existsSync(file) ? file : null;
+}
+
+/**
+ * The steps of an agy conversation are protobuf inside SQLite and its title
+ * sits in another SQLite file, neither of which is read here. The owner's own
+ * prompts are plain: history.jsonl holds one {display, timestamp, workspace,
+ * conversationId, type?} per prompt, so the last thing typed is shown.
+ */
+function agyPreview(sessionId: string): Preview | null {
+  const log = findAgyConversation(sessionId);
+  if (!log) {
+    return null;
+  }
+  let lastPrompt: string | null = null;
+  let when: string | null = null;
+  for (const o of tail(path.join(agyHome(), 'history.jsonl'), 2 * 1024 * 1024)) {
+    if (o.conversationId !== sessionId || typeof o.display !== 'string' || !o.display.trim()) {
+      continue;
+    }
+    // A slash command is the owner's too, but says nothing about the work.
+    if (o.type === 'slash_command' && lastPrompt) {
+      continue;
+    }
+    lastPrompt = o.display.trim();
+    when = typeof o.timestamp === 'number' ? new Date(o.timestamp).toISOString() : when;
+  }
+  if (!when) {
+    try {
+      when = fs.statSync(log).mtime.toISOString();
+    } catch {
+      /* gone between the look and the stat */
+    }
+  }
+  return { title: null, lastPrompt, lastReply: null, when, log };
 }
 
 // ------------------------------------------------------------------- codex --

@@ -8,6 +8,15 @@ follows [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- Antigravity CLI (`agy`, Gemini) terminals are recorded and restored like
+  Claude Code and Codex ones. The conversation is read from the terminal's
+  own `agy` process: `--conversation <id>` on its command line, else the
+  log under `~/.gemini/antigravity-cli/log/` whose first line names that
+  process, and in it the conversation the owner last wrote to. Restoring
+  runs `agy --conversation <id>` (`agy -c` when no id was learned); the
+  picker shows the last prompt from `history.jsonl` and leaves a deleted
+  conversation unticked. The `/focus` link takes an `agy:` key.
+
 - Terminals another tool opened outside VS Code can be offered back. A
   record with `source: "hub"` in the project's index (the owner's assistant
   hub writes one for each conversation it starts in its own workspace, under

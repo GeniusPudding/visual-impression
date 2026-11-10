@@ -14,14 +14,22 @@ export interface ChoiceText {
 }
 
 /** Terminal names that are the shell or the agent binary, not a conversation. */
-const GENERIC_NAMES = new Set(['', 'powershell', 'pwsh', 'cmd', 'bash', 'zsh', 'sh', 'fish', 'nu', 'claude', 'codex', 'node']);
+const GENERIC_NAMES = new Set(['', 'powershell', 'pwsh', 'cmd', 'bash', 'zsh', 'sh', 'fish', 'nu', 'claude', 'codex', 'agy', 'node']);
 
 function isGenericName(name: string | undefined): boolean {
   return GENERIC_NAMES.has((name || '').trim().toLowerCase());
 }
 
+/** What reopening does for a conversation whose id was never learned. */
+export function noSessionNote(app: string): string {
+  if (app === 'agy') {
+    return "no session id recorded — reopening continues agy's newest conversation in this folder";
+  }
+  return `no session id recorded — reopening gives you ${app}'s own picker`;
+}
+
 function appName(app: string): string {
-  return app === 'codex' ? 'Codex' : app === 'claude' ? 'Claude' : app;
+  return app === 'codex' ? 'Codex' : app === 'claude' ? 'Claude' : app === 'agy' ? 'Antigravity' : app;
 }
 
 /**
@@ -55,7 +63,7 @@ export function choiceText(rec: TerminalRecord, preview: Preview | null, preview
   } else if (preview?.lastPrompt) {
     detail = '> ' + oneLine(preview.lastPrompt);
   } else if (!rec.session) {
-    detail = `no session id recorded — reopening gives you ${rec.app}'s own picker`;
+    detail = noSessionNote(rec.app);
   } else {
     detail = '';
   }

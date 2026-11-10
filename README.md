@@ -10,6 +10,12 @@ VS Code already restores the *shell* in a terminal. What it cannot restore is
 the conversation that was running inside it, because only the agent knows that
 and only the window knows which terminal was which.
 
+| Agent | Recognised as | Brought back with |
+|---|---|---|
+| Claude Code | a `claude` process under the terminal's shell | `claude --resume <id>` |
+| Codex | a `codex` process | `codex resume <id>` |
+| Antigravity CLI (Gemini) | an `agy` process | `agy --conversation <id>` |
+
 ## Quick start
 
 Not on the Marketplace yet, so install it from source -- one clone and one
@@ -183,7 +189,7 @@ vscode://geniuspudding.visual-impression/focus?session=<conversation id>
 
 | Parameter | |
 |---|---|
-| `session` | the conversation: a Claude Code session id, or a Codex thread id (a `codex:` prefix is tolerated) |
+| `session` | the conversation: a Claude Code session id, a Codex thread id or an Antigravity conversation id (a `codex:` or `agy:` prefix is tolerated) |
 | `pid` | the terminal's shell pid, as the index keys it |
 | `name` | the terminal's name; honoured only when exactly one open terminal carries it |
 | `cwd` | the folder the terminal's window has open; lets a link that lands in the wrong window bring the right one forward |
@@ -248,6 +254,19 @@ session id, and every later `codex resume` opens a new file carrying its own
 uuid in the name while `session_meta` still points at the original. So lookups
 read `session_meta`, never the file name.
 
+**The Antigravity CLI** (`agy`, Google's Gemini agent) keeps a log per start
+under `~/.gemini/antigravity-cli/log/`. Its first line names the process
+(`Starting language server process with pid N`) and every message you send is
+logged against the conversation it went to, so the terminal's `agy` process
+leads to its log and the log to the conversation -- the last one *you* wrote
+to, which leaves out the conversations its subagents open. A terminal started
+as `agy --conversation <id>`, which is every one this extension restores, says
+so on its command line and the log is not consulted. An `agy` that has not been
+given a first message has no conversation yet and none is recorded; reopening
+that terminal runs `agy -c`, which continues the newest conversation agy has
+for the folder (it has no picker flag). The picker shows the last prompt from
+`history.jsonl`; a conversation you deleted in agy is listed unticked.
+
 ## Plain terminals, and what they are worth over SSH
 
 A terminal that never ran an agent still had something running in it. VS Code
@@ -311,8 +330,8 @@ kind, and no runtime dependencies.
 
 | What it reads | Why |
 |---|---|
-| the process table | to tell which terminal is running `claude` or `codex`, and with which conversation |
-| `~/.codex/sessions/**`, `~/.claude/projects/**`, `~/.claude/sessions/**` | the agent's own transcripts, for the conversation id and the line shown in the picker |
+| the process table | to tell which terminal is running `claude`, `codex` or `agy`, and with which conversation |
+| `~/.codex/sessions/**`, `~/.claude/projects/**`, `~/.claude/sessions/**`, `~/.gemini/antigravity-cli/{log,conversations,history.jsonl}` | the agent's own transcripts and logs, for the conversation id and the line shown in the picker |
 | the command you last ran in a plain terminal | so a restored terminal can offer it back |
 
 | What it writes | Where |
@@ -325,8 +344,8 @@ off and lists terminals by name alone, which is what you want on a screen
 that is being shared. **Visual Impression: Forget this workspace's history**
 deletes a project's file; the directory is yours to delete at any time.
 
-A restored agent terminal runs `claude --resume <id>` or
-`codex resume <id>`, and nothing else on that line. A crashed or killed agent
+A restored agent terminal runs `claude --resume <id>`, `codex resume <id>` or
+`agy --conversation <id>`, and nothing else on that line. A crashed or killed agent
 leaves the terminal in the modes it switched on (mouse and focus reporting,
 win32-input-mode, the kitty keyboard protocol), and the shell then prints
 every mouse move as `[<35;10;1M`; so when the shell integration reports the
@@ -390,6 +409,13 @@ restored plain terminal has its last command typed into it and **not** run
   so the pair cannot swap from scan to scan, but the very first guess can
   still be the wrong way round. A terminal opened with `codex resume <id>`,
   which is every one this extension restores, is never guessed.
+- **An Antigravity conversation has no title in the picker.** agy keeps its
+  titles in a SQLite file and the steps as protobuf, and this extension has
+  no runtime dependencies to read either; the row is named
+  `Antigravity conversation 046c6a10` and shows your last prompt. The agy
+  side was verified on Windows (agy 1.4.12); on macOS and Linux it relies on
+  the same `~/.gemini/antigravity-cli` layout and has not been run there.
+  The hand-off link (`/handoff`) starts Claude Code or Codex only.
 - **A conversation is offered once.** Records are keyed by shell pid, so
   every reopen of the window writes the same conversation again under a new
   key. The picker shows the newest of them and hides a conversation that is

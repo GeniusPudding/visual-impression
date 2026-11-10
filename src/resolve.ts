@@ -51,6 +51,15 @@ export async function resolveTerminal(shellPid: number, cwd: string): Promise<Re
     return { app: 'codex', session, title: codexThreadName(session), agentPid: codex.pid, explicit: Boolean(session) };
   }
 
+  const agy = kids.find(isAgy);
+  if (agy) {
+    // The log names whichever process hosts agy's server; that is agy itself
+    // where it has been seen, and one of its children would do as well.
+    const pids = new Set([agy.pid, ...descendants(procs, agy.pid).map((p) => p.pid)]);
+    const session = resolveAgySession(agy.commandLine, pids);
+    return { app: 'agy', session, title: null, agentPid: agy.pid, explicit: Boolean(session) };
+  }
+
   return { app: 'shell', session: null, title: null, agentPid: null, explicit: false };
 }
 
@@ -149,6 +158,11 @@ function isCodex(p: Proc): boolean {
   return /\bnode(\.exe)?$/i.test(p.name) && /[\\/]codex[\\/]/i.test(p.commandLine);
 }
 
+/** The Antigravity CLI: one native binary, `agy` (`agy.exe` on Windows). */
+function isAgy(p: Proc): boolean {
+  return /^agy(\.exe)?$/i.test(p.name);
+}
+
 function fromCommandLine(p: Proc): string | null {
   const m = UUID.exec(p.commandLine);
   return m ? m[0] : null;
@@ -173,6 +187,120 @@ function readClaudeSession(pid: number): ClaudeSession | null {
   } catch {
     return null;
   }
+}
+
+// -------------------------------------------------------- antigravity cli --
+//
+// agy keeps everything under ~/.gemini/antigravity-cli on every platform: a
+// SQLite file per conversation in conversations/, the owner's prompts in
+// history.jsonl, and one log per start in log/cli-<stamp>.log. The log is
+// what ties a terminal to its conversation: its first line names the process
+// ("Starting language server process with pid N"), and every message the
+// owner sends is logged against the conversation it went to. A terminal
+// started as `agy --conversation <id>` says so on its command line.
+
+const UUID_SRC = '([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})';
+
+export function agyHome(home: string = os.homedir()): string {
+  return path.join(home, '.gemini', 'antigravity-cli');
+}
+
+/** The pid a log's head says it belongs to, or 0. */
+export function agyLogPid(head: string): number {
+  const m = /Starting language server process with pid (\d+)/.exec(head);
+  return m ? Number(m[1]) : 0;
+}
+
+/**
+ * The conversation a log is about: the last one the owner's own message went
+ * to, else the last one created, else the last one mentioned at all. A
+ * subagent's conversation is created in the same log, but nothing of the
+ * owner's is ever sent to it.
+ */
+export function agyLogConversation(text: string): string | null {
+  const patterns = [
+    `(?:Forwarding|Sending) user message to conversation ${UUID_SRC}`,
+    `Created conversation ${UUID_SRC}`,
+    `[Cc]onversation[ =:]+${UUID_SRC}`,
+  ];
+  for (const src of patterns) {
+    let last: string | null = null;
+    for (const m of text.matchAll(new RegExp(src, 'gi'))) {
+      last = m[1];
+    }
+    if (last) {
+      return last.toLowerCase();
+    }
+  }
+  return null;
+}
+
+/** The first or the last `bytes` of a file that agy may still be appending to. */
+function readPart(file: string, bytes: number, fromEnd: boolean): string {
+  let fd: number | null = null;
+  try {
+    fd = fs.openSync(file, 'r');
+    const size = fs.fstatSync(fd).size;
+    const take = Math.min(bytes, size);
+    const buf = Buffer.alloc(take);
+    const read = fs.readSync(fd, buf, 0, take, fromEnd ? size - take : 0);
+    return buf.subarray(0, read).toString('utf8');
+  } catch {
+    return '';
+  } finally {
+    if (fd !== null) {
+      fs.closeSync(fd);
+    }
+  }
+}
+
+/** A log's head never changes once written, so the pid in it is read once per file. */
+const agyHeadCache = new Map<string, number>();
+
+/**
+ * The log of the agy running as one of `pids`: the most recently started one
+ * whose head names such a pid. Logs are named by their start time, so when a
+ * pid has come round again the newest name is the process that is running.
+ */
+export function findAgyLog(pids: ReadonlySet<number>, logDir: string): string | null {
+  let names: string[];
+  try {
+    names = fs.readdirSync(logDir).filter((n) => /^cli-.*\.log$/i.test(n));
+  } catch {
+    return null;
+  }
+  for (const name of names.sort().reverse()) {
+    const file = path.join(logDir, name);
+    let pid = agyHeadCache.get(file);
+    if (pid === undefined) {
+      pid = agyLogPid(readPart(file, 4096, false));
+      if (pid) {
+        agyHeadCache.set(file, pid);
+      }
+    }
+    if (pid && pids.has(pid)) {
+      return file;
+    }
+  }
+  return null;
+}
+
+/**
+ * The conversation in an agy terminal: the id on its command line, else the
+ * one its own log says the owner has been talking to. Nothing for an agy
+ * that has not been given a first message yet -- and nothing is guessed.
+ */
+export function resolveAgySession(
+  commandLine: string,
+  pids: ReadonlySet<number>,
+  logDir: string = path.join(agyHome(), 'log'),
+): string | null {
+  const stated = new RegExp(`--conversation[= ]+["']?${UUID_SRC}`, 'i').exec(commandLine);
+  if (stated) {
+    return stated[1].toLowerCase();
+  }
+  const log = findAgyLog(pids, logDir);
+  return log ? agyLogConversation(readPart(log, 1024 * 1024, true)) : null;
 }
 
 // ------------------------------------------------------------------ codex --

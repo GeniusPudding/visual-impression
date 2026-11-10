@@ -1232,3 +1232,156 @@ test('picker: plain shells are never ticked and show their command', () => {
   assert.strictEqual(row.picked, false);
   assert.strictEqual(row.detail, '$ npm run dev');
 });
+
+// --------------------------------------------------------- antigravity cli --
+//
+// Log lines below are the shapes read from a real ~/.gemini/antigravity-cli/log
+// (agy 1.4.12, Windows, 2026-11): the head names the pid, a sent message names
+// the conversation, a conversation resumed and not yet spoken to is only
+// mentioned.
+
+const { agyLogPid, agyLogConversation, findAgyLog, resolveAgySession } = require(path.join(OUT, 'resolve.js'));
+const { conversationExists } = require(path.join(OUT, 'preview.js'));
+const { noSessionNote } = require(path.join(OUT, 'choice.js'));
+
+const AGY_A = '046c6a10-51bc-439a-b2ca-57d3dec2619c';
+const AGY_B = 'd7599797-9dff-4093-b63b-ceb5aed99bf2';
+const AGY_SUB = '29115d10-9f35-454f-ae3f-215a49a4eefc';
+
+function agyHead(pid) {
+  return `I1110 23:09:06.661831      21 server.go:1897] Starting language server process with pid ${pid}\n` +
+    'I1110 23:09:06.715804      21 server.go:1953] Language server version: 1.4.12\n';
+}
+
+function agyLogDir(home, logs) {
+  const dir = path.join(home, '.gemini', 'antigravity-cli', 'log');
+  fs.mkdirSync(dir, { recursive: true });
+  for (const [name, text] of Object.entries(logs)) {
+    fs.writeFileSync(path.join(dir, name), text);
+  }
+  return dir;
+}
+
+test('agy: the head of a log names the process it belongs to', () => {
+  assert.strictEqual(agyLogPid(agyHead(1880)), 1880);
+  assert.strictEqual(agyLogPid('I1110 23:09:06.7 21 server.go:1953] Language server version: 1.4.12\n'), 0);
+  assert.strictEqual(agyLogPid(''), 0);
+});
+
+test('agy: a log is about the conversation the owner last wrote to, not the last one mentioned', () => {
+  const text =
+    `I1 1 server.go:1241] Created conversation ${AGY_A} (backend=BACKEND_TYPE_UNSPECIFIED)\n` +
+    `I1 1 server.go:1833] Sending user message to conversation ${AGY_A} (items=1, media=0)\n` +
+    `I1 1 conversation_manager.go:903] Forwarding user message to conversation ${AGY_A} (items=1, media=0)\n` +
+    `I1 1 server.go:1241] Created conversation ${AGY_SUB} (backend=BACKEND_TYPE_UNSPECIFIED)\n` +
+    `I1 1 manager.go:1017] Full redraw completed (RerenderAll) for conversation ${AGY_SUB} \n`;
+  assert.strictEqual(agyLogConversation(text), AGY_A, 'a subagent conversation is created and mentioned, never written to by the owner');
+  // Resumed and not spoken to yet: only mentioned.
+  assert.strictEqual(agyLogConversation(`I1 1 server.go:3316] GetConversationDetail: found conversation ${AGY_B} (active=false)\n`), AGY_B);
+  assert.strictEqual(agyLogConversation(`I1 1 session.go:201] Print mode: conversation=${AGY_B}, sending message\n`), AGY_B);
+  // Started and given nothing: no conversation, and none is made up.
+  assert.strictEqual(agyLogConversation(agyHead(1880) + 'I1 1 server.go:3063] ListConversations returning 4 summaries\n'), null);
+});
+
+test('agy: the terminal is tied to the log whose head names its process', () => {
+  withHome(tempHome(), () => {
+    const dir = agyLogDir(os.homedir(), {
+      'cli-20261031_150834.log': agyHead(1880) + `I1 1 server.go:1833] Sending user message to conversation ${AGY_B} (items=1)\n`,
+      'cli-20261101_005441.log': agyHead(22112) + `I1 1 server.go:1833] Sending user message to conversation ${AGY_SUB} (items=1)\n`,
+      // The pid came round again: the log started last is the process running now.
+      'cli-20261110_230906.log': agyHead(1880) + `I1 1 server.go:1833] Sending user message to conversation ${AGY_A} (items=1)\n`,
+      'notes.txt': agyHead(1880),
+    });
+    assert.strictEqual(path.basename(findAgyLog(new Set([1880]), dir)), 'cli-20261110_230906.log');
+    assert.strictEqual(resolveAgySession('agy', new Set([1880]), dir), AGY_A);
+    assert.strictEqual(resolveAgySession('agy', new Set([22112]), dir), AGY_SUB);
+    // The server may be a child of agy: any pid of the agent's own tree will do.
+    assert.strictEqual(resolveAgySession('agy', new Set([4242, 22112]), dir), AGY_SUB);
+    // No log of this process: nothing, rather than the newest conversation there is.
+    assert.strictEqual(resolveAgySession('agy', new Set([999]), dir), null);
+    assert.strictEqual(resolveAgySession('agy', new Set([999]), path.join(dir, 'missing')), null);
+    // Default location is under the home directory.
+    assert.strictEqual(resolveAgySession('/usr/local/bin/agy', new Set([22112])), AGY_SUB);
+  });
+});
+
+test('agy: a conversation named on the command line is not up for discussion', () => {
+  withHome(tempHome(), () => {
+    const dir = agyLogDir(os.homedir(), {
+      'cli-20261110_230906.log': agyHead(1880) + `I1 1 server.go:1833] Sending user message to conversation ${AGY_A} (items=1)\n`,
+    });
+    const pids = new Set([1880]);
+    assert.strictEqual(resolveAgySession(`"C:\\Users\\me\\AppData\\Local\\agy\\bin\\agy.exe" --conversation ${AGY_B}`, pids, dir), AGY_B);
+    assert.strictEqual(resolveAgySession(`agy --model x --conversation=${AGY_B.toUpperCase()}`, pids, dir), AGY_B);
+    assert.strictEqual(resolveAgySession(`agy --conversation '${AGY_B}'`, pids, dir), AGY_B);
+    // Another flag's uuid is not a conversation.
+    assert.strictEqual(resolveAgySession(`agy --project ${AGY_B}`, pids, dir), AGY_A);
+  });
+});
+
+test('agy: a restored terminal runs agy on the conversation, or continues the folder when none was learned', () => {
+  assert.strictEqual(handoff.resumeCommand('agy', AGY_A, 'powershell', false), `agy --conversation ${AGY_A}`);
+  assert.strictEqual(handoff.resumeCommand('agy', undefined, 'posix', false), 'agy -c');
+  assert.strictEqual(handoff.resumeCommand('agy', AGY_A, 'posix'), `agy --conversation ${AGY_A}` + handoff.resetAfter('posix'));
+  // The other two are as they were.
+  assert.strictEqual(handoff.resumeCommand('claude', 'abc12345-1', 'posix', false), 'claude --resume abc12345-1');
+  assert.strictEqual(handoff.resumeCommand('codex', 'abc12345', 'cmd', false), 'codex resume abc12345');
+});
+
+test('agy: the picker shows the last prompt and leaves a deleted conversation unticked', () => {
+  withHome(tempHome(), () => {
+    const root = path.join(os.homedir(), '.gemini', 'antigravity-cli');
+    fs.mkdirSync(path.join(root, 'conversations'), { recursive: true });
+    fs.writeFileSync(path.join(root, 'conversations', `${AGY_A}.db`), 'sqlite');
+    const line = (o) => JSON.stringify(o) + '\n';
+    fs.writeFileSync(
+      path.join(root, 'history.jsonl'),
+      line({ display: 'padding so the first line may be dropped', timestamp: 1, workspace: 'C:\\w', conversationId: AGY_B }) +
+        line({ display: '幫我整理 README', timestamp: 1794327000000, workspace: 'C:\\w', conversationId: AGY_A }) +
+        line({ display: 'something for another conversation', timestamp: 1794327500000, workspace: 'C:\\w', conversationId: AGY_B }) +
+        line({ display: '/model', timestamp: 1794327627312, workspace: 'C:\\w', conversationId: AGY_A, type: 'slash_command' }),
+    );
+    const p = getPreview('agy', AGY_A, 'C:/w');
+    assert.strictEqual(p.lastPrompt, '幫我整理 README', 'a slash command does not replace what the owner asked for');
+    assert.strictEqual(p.when, new Date(1794327000000).toISOString());
+    assert.strictEqual(p.title, null);
+    assert.strictEqual(conversationExists('agy', AGY_A, 'C:/w'), true);
+    assert.strictEqual(conversationExists('agy', AGY_B, 'C:/w'), false, 'agy removes the file with the conversation');
+    assert.strictEqual(conversationExists('agy', null, 'C:/w'), true, 'nothing to look for: agy -c');
+    assert.strictEqual(getPreview('agy', AGY_B, 'C:/w'), null);
+
+    const row = choiceText(agentRec({ app: 'agy', name: 'agy', session: AGY_A }), p, true);
+    assert.deepStrictEqual(row, { title: 'Antigravity conversation 046c6a10', detail: '> 幫我整理 README', picked: true });
+    const gone = choiceText(agentRec({ app: 'agy', name: 'agy', session: AGY_B }), null, true);
+    assert.strictEqual(gone.picked, false);
+    const bare = choiceText(agentRec({ app: 'agy', name: 'agy', session: null }), null, true);
+    assert.strictEqual(bare.picked, true);
+    assert.strictEqual(bare.detail, noSessionNote('agy'));
+    assert.match(bare.detail, /continues agy's newest conversation in this folder/);
+    assert.match(noSessionNote('codex'), /codex's own picker/);
+  });
+});
+
+test('agy: a conversation with only a slash command still shows it', () => {
+  withHome(tempHome(), () => {
+    const root = path.join(os.homedir(), '.gemini', 'antigravity-cli');
+    fs.mkdirSync(path.join(root, 'conversations'), { recursive: true });
+    fs.writeFileSync(path.join(root, 'conversations', `${AGY_A}.db`), 'sqlite');
+    fs.writeFileSync(path.join(root, 'history.jsonl'), JSON.stringify({ display: '/model', timestamp: 5, conversationId: AGY_A, type: 'slash_command' }) + '\n');
+    assert.strictEqual(getPreview('agy', AGY_A, '').lastPrompt, '/model');
+  });
+  // No history file at all: the conversation is still there to restore.
+  withHome(tempHome(), () => {
+    const root = path.join(os.homedir(), '.gemini', 'antigravity-cli');
+    fs.mkdirSync(path.join(root, 'conversations'), { recursive: true });
+    fs.writeFileSync(path.join(root, 'conversations', `${AGY_A}.db`), 'sqlite');
+    const p = getPreview('agy', AGY_A, '');
+    assert.strictEqual(p.lastPrompt, null);
+    assert.ok(p.when, 'the file time stands in');
+  });
+});
+
+test('agy: the focus link takes an agy: key the way it takes a codex: one', () => {
+  assert.deepStrictEqual(parseFocus('session=agy%3A' + AGY_A), { session: AGY_A });
+  assert.strictEqual(parseFocus('session=other%3A' + AGY_A), null);
+});

@@ -10,7 +10,7 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 
-export type App = 'claude' | 'codex' | 'shell';
+export type App = 'claude' | 'codex' | 'agy' | 'shell';
 
 export interface TerminalRecord {
   /** Stable across scans: VS Code reuses neither name nor pid reliably. */

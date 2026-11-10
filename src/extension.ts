@@ -49,7 +49,7 @@ import { SHELL_READY_TIMEOUT_MS, whenReady } from './ready';
 import { codexThreadName, invalidateRolloutCache, listRollouts, resolveTerminal, settleCodexSessions } from './resolve';
 import type { Resolved } from './resolve';
 import { conversationExists, getPreview, oneLine } from './preview';
-import { choiceText } from './choice';
+import { choiceText, noSessionNote } from './choice';
 
 /** Terminals this window created, so a scan can tell them from a stale record. */
 const liveKeys = new WeakMap<vscode.Terminal, string>();
@@ -742,7 +742,7 @@ function openFor(
       ...(splitOf ? { location: { parentTerminal: splitOf } } : {}),
     });
   term.show(false);
-  if (rec.app === 'claude' || rec.app === 'codex') {
+  if (rec.app !== 'shell') {
     const app = rec.app;
     const shell = shellKindOf(vscode.env.shell);
     typeAgentLine(term, (inlineReset) => resumeCommand(app, rec.session ?? undefined, shell, inlineReset), shell);
@@ -754,16 +754,6 @@ function openFor(
     typeInto(term, rec.lastCommand, false);
   }
   return term;
-}
-
-function noSessionNote(app: App): string {
-  if (app === 'codex') {
-    return "no session id recorded — reopening gives you codex's own picker";
-  }
-  if (app === 'claude') {
-    return "no session id recorded — reopening gives you claude's own picker";
-  }
-  return 'a plain shell';
 }
 
 /** Whether the picker would pre-tick this record: the counts must match what Enter restores. */

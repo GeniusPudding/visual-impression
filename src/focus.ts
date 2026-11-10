@@ -11,7 +11,7 @@ import type { TerminalRecord } from './store';
 import { sameFolder } from './handoff';
 
 export interface FocusRequest {
-  /** The conversation id: a Claude Code session, or a Codex thread (`codex:` prefix tolerated). */
+  /** The conversation id: a Claude Code session, or a Codex thread or an Antigravity conversation (`codex:` / `agy:` prefix tolerated). */
   session?: string;
   /** The terminal's shell pid, as the index keys it. */
   pid?: number;
@@ -28,7 +28,7 @@ const NAME_MAX = 80;
 export function parseFocus(query: string): FocusRequest | null {
   const q = new URLSearchParams(query);
   const rawSession = (q.get('session') ?? '').trim();
-  const session = rawSession.replace(/^codex:/, '');
+  const session = rawSession.replace(/^(codex|agy):/, '');
   const pidText = (q.get('pid') ?? '').trim();
   const name = (q.get('name') ?? '').trim();
   const cwd = (q.get('cwd') ?? '').trim();
