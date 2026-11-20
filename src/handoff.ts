@@ -207,6 +207,21 @@ export interface PendingHandoff extends HandoffRequest {
   at: number;
 }
 
+export type StartupOffer = 'none' | 'notify' | 'picker';
+
+/**
+ * What a window offers when it opens. A window the hub opened for 開工 goes
+ * straight to the picker: the owner asked to start work there, so the
+ * "Restore…?" notification would only be one more click before the same list.
+ * The picker still shows, so what comes back can be looked over and unticked.
+ */
+export function startupOffer(promptOnStartup: boolean, ticked: number, handedOff: boolean): StartupOffer {
+  if (!promptOnStartup || ticked === 0) {
+    return 'none';
+  }
+  return handedOff ? 'picker' : 'notify';
+}
+
 export function pendingFor(
   pending: PendingHandoff | undefined,
   folder: string | undefined,

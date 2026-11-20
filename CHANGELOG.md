@@ -8,6 +8,11 @@ follows [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- A window opened by the `/handoff` link (the assistant hub's 開工) shows the
+  restore picker straight away instead of the `Restore…` notification, so the
+  rest of the project comes back with one Enter, still ticked and unticked by
+  hand. A window opened by hand asks first, as before.
+
 - Antigravity CLI (`agy`, Gemini) terminals are recorded and restored like
   Claude Code and Codex ones. The conversation is read from the terminal's
   own `agy` process: `--conversation <id>` on its command line, else the
@@ -26,6 +31,11 @@ follows [semantic versioning](https://semver.org/spec/v2.0.0.html).
   like any other.
 
 ### Fixed
+
+- A window opened by the `/handoff` link no longer offers back, ticked, the
+  conversation that link is resuming, which Enter would have started a second
+  time; nor does a restore type into the link's terminal while its agent is
+  still starting.
 
 - The restore picker no longer ticks rows that read as plain terminals. A
   conversation whose transcript is gone from this machine is listed unticked

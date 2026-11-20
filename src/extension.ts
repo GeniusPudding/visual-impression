@@ -42,6 +42,7 @@ import {
   resumeCommand,
   sameFolder,
   shellKindOf,
+  startupOffer,
 } from './handoff';
 import { FocusRequest, PENDING_FOCUS_KEY, PendingFocus, focusPending, parseFocus, pickTerminalKey } from './focus';
 import { invalidateProcessCache, listProcesses } from './procs';
@@ -117,7 +118,7 @@ export function activate(context: vscode.ExtensionContext): void {
   closeAllStale(folder);
 
   startPolling(folder, context);
-  takePendingHandoff(context, folder);
+  const handed = takePendingHandoff(context, folder);
 
   // The prompt must not wait for a scan. Resolving which agent is in which
   // terminal costs a PowerShell start-up -- over a second -- and the prompt
@@ -128,7 +129,7 @@ export function activate(context: vscode.ExtensionContext): void {
   // offered back into a second terminal.
   void (async () => {
     await new Promise((r) => setTimeout(r, 800)); // let reconnected ptys report a pid
-    await offerRestoreOnStartup(folder);
+    await offerRestoreOnStartup(folder, handed);
   })();
   scheduleScan(folder, 1500);
 }
@@ -245,13 +246,23 @@ async function focusTerminal(folder: string, req: FocusRequest): Promise<boolean
   return true;
 }
 
-function takePendingHandoff(context: vscode.ExtensionContext, folder: string): void {
+/** A hand-off this window started: its conversation and the terminal it runs in. */
+interface Handed {
+  session?: string;
+  term: vscode.Terminal;
+}
+
+function takePendingHandoff(context: vscode.ExtensionContext, folder: string): Handed | undefined {
   const req = pendingFor(context.globalState.get<PendingHandoff>(PENDING_HANDOFF_KEY), folder);
   if (!req) {
-    return;
+    return undefined;
   }
   void context.globalState.update(PENDING_HANDOFF_KEY, undefined);
-  openHandoffTerminal(req);
+  return { session: req.session, term: openHandoffTerminal(req) };
+}
+
+function busyOf(handed?: Handed): Set<string> {
+  return new Set(handed?.session ? [handed.session] : []);
 }
 
 function openHandoffTerminal(req: HandoffRequest): vscode.Terminal {
@@ -611,8 +622,8 @@ async function openKeysNow(): Promise<Set<string>> {
   return keys;
 }
 
-async function restoreTerminals(folder: string): Promise<void> {
-  const candidates = restorable(readIndex(folder), await openKeysNow());
+async function restoreTerminals(folder: string, handed?: Handed): Promise<void> {
+  const candidates = restorable(readIndex(folder), await openKeysNow(), busyOf(handed));
 
   if (!candidates.length) {
     void vscode.window.showInformationMessage('Visual Impression: nothing recorded to bring back for this project yet.');
@@ -643,7 +654,9 @@ async function restoreTerminals(folder: string): Promise<void> {
   if (!picked?.length) {
     return;
   }
-  const spare = await spareTerminals(folder);
+  // The hand-off's terminal can still read as a bare shell while its agent
+  // starts, and typing a second agent line into it would garble both.
+  const spare = (await spareTerminals(folder)).filter((t) => t !== handed?.term);
   // The arrangement read off the screen before this project last closed, if
   // there is one: it decides which conversations share a tab, and in what
   // order. Without it they are grouped by the setting instead.
@@ -765,14 +778,16 @@ function iconFor(app: App): string {
   return app === 'shell' ? 'terminal' : 'comment-discussion';
 }
 
-async function offerRestoreOnStartup(folder: string): Promise<void> {
-  if (!cfg('promptOnStartup', true)) {
-    return;
-  }
-  const offered = restorable(readIndex(folder), await openKeysNow());
+async function offerRestoreOnStartup(folder: string, handed?: Handed): Promise<void> {
+  const offered = restorable(readIndex(folder), await openKeysNow(), busyOf(handed));
   const n = offered.filter(wouldTick).length;
   const shells = offered.length - n;
-  if (!n) {
+  const offer = startupOffer(cfg('promptOnStartup', true), n, !!handed);
+  if (offer === 'none') {
+    return;
+  }
+  if (offer === 'picker') {
+    await restoreTerminals(folder, handed);
     return;
   }
   const pick = await vscode.window.showInformationMessage(

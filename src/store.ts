@@ -271,12 +271,15 @@ export function findRecord(
 export function restorable(
   ix: WorkspaceIndex,
   openKeys: ReadonlySet<string> = new Set(),
+  busy: ReadonlySet<string> = new Set(),
 ): TerminalRecord[] {
   // A conversation that is running right now is not something to bring back,
-  // whichever terminal happens to be holding it.
-  const live = new Set(
-    ix.terminals.filter((t) => !t.closedAt && t.session).map((t) => t.session as string),
-  );
+  // whichever terminal happens to be holding it. `busy` names the ones being
+  // started this moment (a hand-off), which no record says are open yet.
+  const live = new Set([
+    ...busy,
+    ...ix.terminals.filter((t) => !t.closedAt && t.session).map((t) => t.session as string),
+  ]);
   const rows = orderForScreen(
     ix.terminals
       .map((t, at) => ({ t, at }))

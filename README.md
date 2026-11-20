@@ -163,6 +163,13 @@ If this window has that folder open, the terminal opens here. Otherwise the
 request is parked and the folder opened; the window that has it -- a new one,
 or the one VS Code brings forward -- opens the terminal, within two minutes.
 
+A window opened this way skips the `Restore…` notification and shows the
+restore picker at once, the project's other conversations pre-ticked, so
+starting work there is the link plus Enter. The picker is still a picker:
+untick what should stay closed, or Esc for none. The conversation the link
+is starting is never in it, and its terminal is never reused for another.
+With `promptOnStartup` off, nothing is offered either way.
+
 The link cannot run anything else: it carries an agent name, ids that must
 look like ids, and a prompt. The command line is assembled by the extension
 from those, so the worst a bad link can do is start Claude Code or Codex with
